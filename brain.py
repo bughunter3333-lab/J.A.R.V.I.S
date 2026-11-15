@@ -13,11 +13,23 @@ import tools
 # This is checked in code so a false claim never reaches the user.
 ASKED_TO_REMEMBER = re.compile(r"\b(remember|keep (it |that |this )?in mind|don'?t forget)\b", re.I)
 CLAIMS_MEMORY = re.compile(r"\b(remembered|committed (it|that) to memory|made a note of)\b", re.I)
+# Stock sign-offs the model adds even when told not to. Removed in code.
+STOCK_OFFER = re.compile(
+    r"\s*(?:Is there|Will there be|Do you need|Would you like|May I|How (?:else )?(?:may|can) I)"
+    r"[^.?!]{0,60}\b(?:anything else|further|other|more|help|assist(?:ance)?)\b[^.?!]*\?\s*$",
+    re.I,
+)
 MEMORY_FAILED = "I am afraid that did not save to memory, sir. Would you tell me once more?"
 NUDGE = (
     "You said you remembered something but did not call the remember_fact tool, "
     "so nothing was saved. Call remember_fact now with the fact, then reply to sir."
 )
+
+
+def strip_stock_offer(reply: str) -> str:
+    """Drop a trailing 'Is there anything else I can assist you with?' (unless that's all he said)."""
+    trimmed = STOCK_OFFER.sub("", reply).strip()
+    return trimmed or reply
 
 
 def _system_prompt() -> str:
@@ -91,7 +103,7 @@ def _respond(message: str, session: str, trace: dict) -> str:
         reply = reply or "My apologies, sir. I got tangled in my own tools and gave up."
 
     # Never echo or store a secret, even if the model repeats one back.
-    reply = security.redact(reply)
+    reply = security.redact(strip_stock_offer(reply))
     memory.add_message(session, "user", security.clean_for_storage("history", message))
     memory.add_message(session, "assistant", reply)
     return reply

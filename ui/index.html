@@ -91,6 +91,8 @@
   <div class="settings" id="settings">
     <label>JARVIS-X SERVER (blank = this page's server)</label><input id="s-server" placeholder="http://127.0.0.1:8000">
     <div class="row"><input type="checkbox" id="s-servervoice"> Use Jarvis's Kokoro voice (else browser voice)</div>
+    <button class="btn" id="s-clear" style="width:100%;margin-top:12px">CLEAR CONVERSATION</button>
+    <div class="note">Makes Jarvis forget this chat (not remembered facts), e.g. after he got something wrong.</div>
     <div class="note">Replies go through /chat, so tools, memory and the audit log all apply. If /speak fails, the browser voice takes over automatically.</div>
   </div>
 
@@ -539,6 +541,12 @@ addEventListener("keydown", e => {
 });
 addEventListener("keyup", e => { if (e.code==="Space" && spaceDown){ spaceDown=false; } });
 
+$("s-clear").onclick = async () => {
+  try{
+    const r = await (await fetch(api("/history/"+SESSION), {method:"DELETE"})).json();
+    els.log.innerHTML = ""; caption(`Conversation cleared (${r.deleted} messages), sir. A fresh start.`);
+  }catch(e){ caption("Couldn't clear the conversation: is the server running?"); }
+};
 // settings bindings
 $("s-server").value = cfg.server;
 $("s-server").onchange = e => { cfg.server = e.target.value.trim(); saveCfg(); boot(); };

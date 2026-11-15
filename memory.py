@@ -114,3 +114,9 @@ def trace_stats(limit: int = 100) -> dict:
         },
         "tools_used": tool_count,
     }
+
+
+def clear_session(session: str) -> int:
+    """Forget one conversation's history (facts and the audit log are kept)."""
+    with closing(_connect()) as db, db:
+        return db.execute("DELETE FROM messages WHERE session = ?", (session,)).rowcount
