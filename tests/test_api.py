@@ -36,3 +36,25 @@ def test_audit_endpoint_lists_tool_calls(client):
     memory.log_tool("open_app", {"name": "cmd"}, "Refused: not on the allow-list.", False)
     entry = client.get("/audit").json()[0]
     assert entry["tool"] == "open_app" and entry["ok"] is False
+
+
+def test_hud_page_is_served(client):
+    page = client.get("/hud")
+    assert page.status_code == 200 and "J.A.R.V.I.S." in page.text
+
+
+def test_speak_returns_wav(client, monkeypatch):
+    import numpy as np
+
+    import voice
+
+    monkeypatch.setattr(voice, "synthesize", lambda text: np.zeros(2400, dtype=np.float32))
+    audio = client.post("/speak", json={"text": "Good evening, sir."})
+    assert audio.status_code == 200
+    assert audio.headers["content-type"] == "audio/wav"
+    assert audio.content[:4] == b"RIFF"
+
+
+def test_speak_rejects_empty_and_oversized_text(client):
+    assert client.post("/speak", json={"text": ""}).status_code == 422
+    assert client.post("/speak", json={"text": "x" * 2001}).status_code == 422

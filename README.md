@@ -12,6 +12,13 @@ cd D:\jarvis-x; .\.venv\Scripts\Activate.ps1; uvicorn main:app --reload
 
 Then open http://127.0.0.1:8000/docs and use **POST /chat**. **GET /audit** shows every tool call Jarvis made or refused.
 
+## The HUD
+
+With the server running, open http://127.0.0.1:8000/hud in Chrome. It shows a blue holographic core that reacts while Jarvis listens, thinks and speaks.
+Hold **Space** (or click the mic) to talk, press **Enter** to send typed text, and **Esc** to stop him. **AUTO** keeps listening after each reply.
+Replies go through `/chat`, so tools, memory and the audit log all apply. His voice comes from `/speak` (Kokoro); if that fails, the browser's own voice takes over.
+Speech input uses Chrome's built-in recognition, which sends audio to Google. For fully local listening, use `talk.py`.
+
 ## Talk to him
 
 ```powershell
@@ -26,12 +33,13 @@ Say "Hey Jarvis", then your request. Say "goodbye Jarvis" or press Ctrl+C to sto
 | File | Job |
 |---|---|
 | `config.py` | All settings: model, personality, allowed apps, voice |
-| `main.py` | Web API (`/chat`, `/audit`) |
+| `main.py` | Web API (`/chat`, `/speak`, `/audit`, `/hud`) |
 | `brain.py` | Thinking loop: history + facts + model + tools |
 | `memory.py` | SQLite storage: messages, facts, audit log |
 | `tools.py` | Actions Jarvis can take, with the security rules |
 | `voice.py` | Text to speech (Kokoro, British voice) |
 | `talk.py` | Voice conversation: wake word, speech recognition, spoken replies |
+| `ui/index.html` | The HUD: holographic interface served at `/hud` |
 | `data/` | Database, notes workspace, audio (not committed to Git) |
 
 ## Security rules (enforced in code)

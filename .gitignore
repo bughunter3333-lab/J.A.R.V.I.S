@@ -4,3 +4,18 @@ __pycache__/
 
 data/
 .pytest_cache/
+
+# Local models, audio and logs
+*.gguf
+*.onnx
+*.pt
+*.wav
+*.mp3
+logs/
+*.log
+
+# Editors / OS
+.vscode/
+.idea/
+Thumbs.db
+.DS_Store

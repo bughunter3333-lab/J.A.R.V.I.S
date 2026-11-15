@@ -1,0 +1,537 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>J.A.R.V.I.S. — JARVIS-X</title>
+<style>
+  :root{
+    --c1:#38c8ff; --c2:#7fe3ff; --c3:#1a6cff; --dim:rgba(120,200,255,.45);
+    --bg:#02060f; --panel:rgba(10,30,60,.35); --line:rgba(80,180,255,.25);
+    --font:"Segoe UI","Consolas",system-ui,sans-serif; --mono:"Consolas","Cascadia Mono",monospace;
+  }
+  *{box-sizing:border-box;margin:0;padding:0}
+  html,body{height:100%;background:var(--bg);color:var(--c2);font-family:var(--font);overflow:hidden}
+  canvas#orb{position:fixed;inset:0;width:100%;height:100%;display:block}
+  .hud{position:fixed;inset:0;pointer-events:none}
+  .hud>*{pointer-events:auto}
+
+  /* corners */
+  .brand{position:absolute;top:22px;left:28px;letter-spacing:.55em;font-size:15px;font-weight:600;color:var(--c1);text-shadow:0 0 12px rgba(56,200,255,.7)}
+  .brand small{display:block;margin-top:6px;letter-spacing:.3em;font-size:10px;font-weight:400;color:var(--dim)}
+  .clock{position:absolute;top:22px;right:28px;text-align:right;font-family:var(--mono);font-size:22px;color:var(--c1);text-shadow:0 0 10px rgba(56,200,255,.6)}
+  .clock small{display:block;font-size:10px;letter-spacing:.25em;color:var(--dim);margin-top:4px}
+
+  .readout{position:absolute;left:28px;top:50%;transform:translateY(-50%);font-family:var(--mono);font-size:11px;line-height:1.9;color:var(--dim);border-left:1px solid var(--line);padding-left:12px;min-width:190px}
+  .readout b{color:var(--c2);font-weight:400}
+  .readout .bar{height:3px;background:rgba(56,200,255,.12);margin:2px 0 8px;width:160px;overflow:hidden}
+  .readout .bar i{display:block;height:100%;width:0;background:linear-gradient(90deg,var(--c3),var(--c1));box-shadow:0 0 8px var(--c1);transition:width .15s}
+
+  .log{position:absolute;right:28px;top:50%;transform:translateY(-50%);width:min(340px,30vw);max-height:56vh;overflow-y:auto;font-size:13px;line-height:1.5;border-right:1px solid var(--line);padding-right:12px;scrollbar-width:none;mask-image:linear-gradient(to bottom,transparent,#000 18%)}
+  .log::-webkit-scrollbar{display:none}
+  .log p{margin:10px 0;text-align:right}
+  .log p.you{color:var(--dim);font-style:italic}
+  .log p.j{color:var(--c2)}
+  .log p .tag{display:block;font-family:var(--mono);font-size:9px;letter-spacing:.3em;color:var(--c1);opacity:.7;font-style:normal;margin-bottom:2px}
+
+  .status{position:absolute;left:50%;bottom:164px;transform:translateX(-50%);font-family:var(--mono);font-size:12px;letter-spacing:.5em;color:var(--c1);text-shadow:0 0 10px var(--c1);white-space:nowrap}
+  .caption{position:absolute;left:50%;bottom:118px;transform:translateX(-50%);width:min(760px,86vw);text-align:center;font-size:17px;color:#d9f4ff;text-shadow:0 0 14px rgba(56,200,255,.5);min-height:26px}
+  .caption.interim{color:var(--dim)}
+
+  .dock{position:absolute;left:50%;bottom:34px;transform:translateX(-50%);display:flex;gap:10px;align-items:center;width:min(760px,90vw)}
+  .dock input{flex:1;background:var(--panel);border:1px solid var(--line);color:var(--c2);padding:13px 16px;font:14px var(--font);outline:none;clip-path:polygon(10px 0,100% 0,100% calc(100% - 10px),calc(100% - 10px) 100%,0 100%,0 10px)}
+  .dock input:focus{border-color:var(--c1);box-shadow:0 0 18px rgba(56,200,255,.25) inset}
+  .dock input::placeholder{color:rgba(120,200,255,.35)}
+  .btn{background:var(--panel);border:1px solid var(--line);color:var(--c1);height:46px;min-width:46px;padding:0 14px;font:600 11px var(--mono);letter-spacing:.2em;cursor:pointer;clip-path:polygon(8px 0,100% 0,100% calc(100% - 8px),calc(100% - 8px) 100%,0 100%,0 8px);transition:all .15s}
+  .btn:hover{border-color:var(--c1);color:#fff;box-shadow:0 0 16px rgba(56,200,255,.35) inset}
+  .btn.on{background:rgba(56,200,255,.22);color:#fff;border-color:var(--c1)}
+  .btn svg{width:18px;height:18px;vertical-align:middle}
+
+  .settings{position:absolute;bottom:100px;right:28px;width:300px;background:rgba(4,16,34,.92);border:1px solid var(--line);padding:16px;font-size:12px;display:none}
+  .settings.open{display:block}
+  .settings label{display:block;color:var(--dim);font-family:var(--mono);font-size:10px;letter-spacing:.15em;margin:10px 0 4px}
+  .settings input,.settings select{width:100%;background:rgba(10,30,60,.6);border:1px solid var(--line);color:var(--c2);padding:7px 8px;font:12px var(--mono);outline:none}
+  .settings .row{display:flex;gap:8px;align-items:center;margin-top:12px;color:var(--c2)}
+  .settings .row input{width:auto}
+  .settings .note{color:var(--dim);margin-top:12px;font-size:11px;line-height:1.45}
+
+  .hint{position:absolute;left:50%;bottom:12px;transform:translateX(-50%);font-family:var(--mono);font-size:9px;letter-spacing:.3em;color:rgba(120,200,255,.3)}
+  @media (max-width:900px){.readout,.log{display:none}}
+</style>
+</head>
+<body>
+<canvas id="orb"></canvas>
+
+<div class="hud">
+  <div class="brand">J.A.R.V.I.S.<small>JARVIS-X · LOCAL CORE</small></div>
+  <div class="clock"><span id="time">--:--:--</span><small id="date">----</small></div>
+
+  <div class="readout">
+    <div>CORE &nbsp;&nbsp;&nbsp;<b id="r-model">—</b></div>
+    <div>BRAIN &nbsp;&nbsp;<b>QWEN3:8B</b></div>
+    <div>VOICE &nbsp;&nbsp;<b id="r-voice">—</b></div>
+    <div>INPUT &nbsp;&nbsp;<b id="r-input">—</b></div>
+    <div>LATENCY <b id="r-lat">—</b></div>
+    <div style="margin-top:10px">AUDIO LEVEL</div><div class="bar"><i id="r-level"></i></div>
+    <div>ACTIVITY</div><div class="bar"><i id="r-act"></i></div>
+  </div>
+
+  <div class="log" id="log"></div>
+
+  <div class="status" id="status">INITIALISING</div>
+  <div class="caption" id="caption"></div>
+
+  <div class="dock">
+    <button class="btn" id="micBtn" title="Talk (hold Space)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="3" width="6" height="12" rx="3"/><path d="M5 11a7 7 0 0 0 14 0M12 18v3"/></svg></button>
+    <input id="text" placeholder="Speak, or type a command…" autocomplete="off">
+    <button class="btn" id="handsBtn" title="Hands-free: keep listening after each reply">AUTO</button>
+    <button class="btn" id="setBtn" title="Settings">⚙</button>
+  </div>
+
+  <div class="settings" id="settings">
+    <label>JARVIS-X SERVER (blank = this page's server)</label><input id="s-server" placeholder="http://127.0.0.1:8000">
+    <div class="row"><input type="checkbox" id="s-servervoice"> Use Jarvis's Kokoro voice (else browser voice)</div>
+    <div class="note">Replies go through /chat, so tools, memory and the audit log all apply. If /speak fails, the browser voice takes over automatically.</div>
+  </div>
+
+  <div class="hint">HOLD SPACE TO TALK · ENTER TO SEND · ESC TO STOP</div>
+</div>
+
+<script>
+/* ============================================================
+   JARVIS-X interface — blue holographic core
+   Served by main.py at /hud.
+   Brain: POST /chat  (brain.py — tools, memory, audit log)
+   Voice: POST /speak (voice.py — Kokoro bm_george), fallback speechSynthesis
+   Ears:  Web Speech API (Chrome). For fully local listening use talk.py
+   ============================================================ */
+
+// ---------- settings (persisted when storage is available) ----------
+const DEFAULTS = {
+  server: "",          // blank = same server that served this page (uvicorn main:app)
+  serverVoice: true,   // use /speak (Kokoro bm_george); falls back to the browser voice
+  handsFree: false
+};
+function loadCfg(){ try{ return {...DEFAULTS, ...JSON.parse(localStorage.getItem("jarvis.hud")||"{}")}; }catch(e){ return {...DEFAULTS}; } }
+function saveCfg(){ try{ localStorage.setItem("jarvis.hud", JSON.stringify(cfg)); }catch(e){} }
+const cfg = loadCfg();
+const api = path => (cfg.server || "").replace(/\/$/,"") + path;
+const SESSION = "hud";   // conversation history for the HUD is kept server-side under this name
+
+// ---------- DOM ----------
+const $ = id => document.getElementById(id);
+const els = {
+  status:$("status"), caption:$("caption"), log:$("log"), text:$("text"),
+  mic:$("micBtn"), hands:$("handsBtn"), set:$("setBtn"), settings:$("settings"),
+  rModel:$("r-model"), rVoice:$("r-voice"), rInput:$("r-input"), rLat:$("r-lat"), rLevel:$("r-level"), rAct:$("r-act")
+};
+
+// ---------- state machine ----------
+// idle | listening | thinking | speaking | offline
+let state = "idle";
+const STATUS_TEXT = {idle:"STANDING BY", listening:"LISTENING", thinking:"PROCESSING", speaking:"SPEAKING", offline:"CORE OFFLINE"};
+function setState(s){ state = s; els.status.textContent = STATUS_TEXT[s] || s.toUpperCase(); els.mic.classList.toggle("on", s==="listening"); }
+
+// ---------- audio graph (drives the orb) ----------
+let actx = null, analyser = null, freqData = null, micStream = null, micSource = null;
+function ensureAudio(){
+  if (actx) { if (actx.state === "suspended") actx.resume(); return; }
+  actx = new (window.AudioContext || window.webkitAudioContext)();
+  analyser = actx.createAnalyser();
+  analyser.fftSize = 256; analyser.smoothingTimeConstant = 0.75;
+  freqData = new Uint8Array(analyser.frequencyBinCount);
+}
+async function attachMic(){
+  ensureAudio();
+  if (micSource) return;
+  try{
+    micStream = await navigator.mediaDevices.getUserMedia({audio:{echoCancellation:true,noiseSuppression:true}});
+    micSource = actx.createMediaStreamSource(micStream);
+    micSource.connect(analyser);           // analyse only; never routed to speakers
+  }catch(e){ console.warn("Mic for visualiser unavailable:", e); }
+}
+let level = 0;                              // 0..1 smoothed loudness
+let fakeLevel = 0;                          // used when we can't analyse (browser TTS)
+function readLevel(){
+  let raw = 0;
+  if (analyser && (state==="listening" || (state==="speaking" && speakingViaBuffer))){
+    analyser.getByteFrequencyData(freqData);
+    let sum=0; for (let i=2;i<48;i++) sum += freqData[i];
+    raw = Math.min(1, sum/(46*170));
+  } else if (state==="speaking"){
+    raw = fakeLevel;
+  }
+  level += (raw - level) * 0.25;
+  return level;
+}
+
+// ---------- the orb ----------
+const cv = $("orb"), g = cv.getContext("2d");
+let W=0,H=0,DPR=1;
+function resize(){ DPR=Math.min(2,window.devicePixelRatio||1); W=innerWidth; H=innerHeight; cv.width=W*DPR; cv.height=H*DPR; g.setTransform(DPR,0,0,DPR,0,0); }
+addEventListener("resize", resize); resize();
+
+// Fibonacci sphere points
+const PTS = [];
+{ const N=1100, ga=Math.PI*(3-Math.sqrt(5));
+  for (let i=0;i<N;i++){ const y=1-(i/(N-1))*2, r=Math.sqrt(1-y*y), th=ga*i;
+    PTS.push({x:Math.cos(th)*r, y, z:Math.sin(th)*r, seed:Math.random()*6.28, s:Math.random()}); } }
+
+// Orbital rings: tilt (rad), radius factor, speed, arc coverage, width
+const RINGS = [
+  {tx:1.15, ty:0.25, r:1.18, sp: 0.22, gap:0.18, w:1.6, dash:[]},
+  {tx:-0.9, ty:0.6,  r:1.30, sp:-0.15, gap:0.35, w:1.0, dash:[2,6]},
+  {tx:0.35, ty:-1.1, r:1.08, sp: 0.30, gap:0.10, w:1.2, dash:[]},
+  {tx:1.45, ty:-0.5, r:1.42, sp: 0.09, gap:0.55, w:0.8, dash:[14,8]},
+  {tx:0.0,  ty:1.3,  r:0.92, sp:-0.35, gap:0.25, w:1.4, dash:[]},
+];
+// Drifting sparks
+const SPARKS = Array.from({length:140},()=>({a:Math.random()*6.28, d:Math.random(), v:0.001+Math.random()*0.004, z:Math.random()*2-1}));
+
+function rot(p, ax, ay){
+  // rotate around X then Y
+  let y = p.y*Math.cos(ax) - p.z*Math.sin(ax);
+  let z = p.y*Math.sin(ax) + p.z*Math.cos(ax);
+  let x = p.x*Math.cos(ay) + z*Math.sin(ay);
+  z = -p.x*Math.sin(ay) + z*Math.cos(ay);
+  return {x,y,z};
+}
+
+let t0 = performance.now(), spin = 0, activity = 0;
+function frame(now){
+  const t = (now - t0)/1000;
+  const lv = readLevel();
+  const target = {idle:0.15, listening:0.45, thinking:1, speaking:0.7, offline:0.03}[state] ?? 0.15;
+  activity += (target - activity)*0.04;
+  spin += (0.0025 + activity*0.012 + lv*0.01);
+
+  const cx=W/2, cy=H/2, R=Math.min(W,H)*0.27*(1 + lv*0.12);
+  const hue = state==="offline" ? 205 : 198 - activity*8;   // stays in the blue/cyan band
+
+  // background
+  g.globalCompositeOperation="source-over";
+  const bg=g.createRadialGradient(cx,cy,0,cx,cy,Math.max(W,H)*0.75);
+  bg.addColorStop(0,"#06183a"); bg.addColorStop(0.45,"#030b1c"); bg.addColorStop(1,"#010309");
+  g.fillStyle=bg; g.fillRect(0,0,W,H);
+  // faint grid
+  g.strokeStyle="rgba(60,140,255,0.045)"; g.lineWidth=1; g.beginPath();
+  for(let x=(cx%48);x<W;x+=48){g.moveTo(x,0);g.lineTo(x,H);} for(let y=(cy%48);y<H;y+=48){g.moveTo(0,y);g.lineTo(W,y);} g.stroke();
+
+  g.globalCompositeOperation="lighter";
+
+  // outer halo
+  const halo=g.createRadialGradient(cx,cy,R*0.2,cx,cy,R*1.9);
+  halo.addColorStop(0,`hsla(${hue},100%,60%,${0.10+lv*0.15})`); halo.addColorStop(0.5,`hsla(${hue+10},100%,50%,0.05)`); halo.addColorStop(1,"rgba(0,0,0,0)");
+  g.fillStyle=halo; g.beginPath(); g.arc(cx,cy,R*1.9,0,6.283); g.fill();
+
+  // particle sphere
+  const ax = 0.35 + Math.sin(t*0.2)*0.15, ay = spin;
+  for (const p of PTS){
+    const wob = 1 + Math.sin(t*2 + p.seed)*0.015 + lv*0.18*Math.sin(t*9 + p.seed*3) + (state==="thinking"?Math.sin(t*5+p.y*8)*0.04:0);
+    const q = rot({x:p.x*wob, y:p.y*wob, z:p.z*wob}, ax, ay);
+    const persp = 1/(1.9 - q.z*0.55);
+    const sx = cx + q.x*R*persp*1.25, sy = cy + q.y*R*persp*1.25;
+    const depth = (q.z+1)/2;
+    const a = 0.08 + depth*0.6;
+    const sz = 0.5 + depth*1.5 + p.s*0.6;
+    g.fillStyle = `hsla(${hue + p.s*20},100%,${55+depth*25}%,${a})`;
+    g.fillRect(sx-sz/2, sy-sz/2, sz, sz);
+  }
+
+  // latitude/longitude wireframe hints
+  g.lineWidth=0.6;
+  for (let k=-2;k<=2;k++){
+    const lat=k*0.35; g.beginPath();
+    for (let i=0;i<=64;i++){ const th=i/64*6.283; const r=Math.cos(lat);
+      const q=rot({x:Math.cos(th)*r, y:Math.sin(lat), z:Math.sin(th)*r}, ax, ay);
+      const ps=1/(1.9-q.z*0.55); const sx=cx+q.x*R*ps*1.25, sy=cy+q.y*R*ps*1.25;
+      i?g.lineTo(sx,sy):g.moveTo(sx,sy); }
+    g.strokeStyle=`hsla(${hue},100%,65%,0.07)`; g.stroke();
+  }
+
+  // orbital rings
+  g.shadowColor=`hsla(${hue},100%,60%,0.9)`;
+  for (const rg of RINGS){
+    const rr = rg.r * (1 + lv*0.08);
+    const ph = t*rg.sp*(1+activity*1.8);
+    g.setLineDash(rg.dash); g.lineWidth=rg.w; g.shadowBlur=10;
+    g.strokeStyle=`hsla(${hue+5},100%,${64+activity*10}%,${0.5+activity*0.3})`;
+    g.beginPath(); let started=false;
+    const steps=140;
+    for (let i=0;i<=steps;i++){
+      const u=i/steps; if (u > 1-rg.gap) { started=false; continue; }
+      const th=u*6.283+ph;
+      let q={x:Math.cos(th)*rr, y:0, z:Math.sin(th)*rr};
+      q=rot(q, rg.tx, rg.ty + spin*0.3);
+      const ps=1/(1.9-q.z*0.4); const sx=cx+q.x*R*ps*1.15, sy=cy+q.y*R*ps*1.15;
+      if(!started){g.moveTo(sx,sy);started=true;} else g.lineTo(sx,sy);
+    }
+    g.stroke();
+    // a bright node riding each ring
+    let n=rot({x:Math.cos(ph)*rr,y:0,z:Math.sin(ph)*rr}, rg.tx, rg.ty+spin*0.3);
+    const ps=1/(1.9-n.z*0.4);
+    g.setLineDash([]); g.fillStyle=`hsla(${hue-10},100%,85%,0.9)`; g.beginPath();
+    g.arc(cx+n.x*R*ps*1.15, cy+n.y*R*ps*1.15, 2.2+lv*3, 0, 6.283); g.fill();
+  }
+  g.setLineDash([]); g.shadowBlur=0;
+
+  // radial spokes
+  g.lineWidth=0.7;
+  for (let i=0;i<10;i++){
+    const a = i*0.628 + spin*0.6 + Math.sin(t*0.7+i)*0.2;
+    const len = R*(0.55 + 0.35*Math.abs(Math.sin(t*0.9+i*1.7)) + lv*0.4);
+    const grd=g.createLinearGradient(cx,cy,cx+Math.cos(a)*len,cy+Math.sin(a)*len);
+    grd.addColorStop(0,`hsla(${hue},100%,75%,0.35)`); grd.addColorStop(1,"rgba(0,0,0,0)");
+    g.strokeStyle=grd; g.beginPath(); g.moveTo(cx,cy); g.lineTo(cx+Math.cos(a)*len, cy+Math.sin(a)*len); g.stroke();
+  }
+
+  // inner core rings (flat, HUD-style)
+  const coreR = R*0.2*(1+lv*0.35);
+  g.lineWidth=2; g.strokeStyle=`hsla(${hue},100%,70%,0.85)`; g.shadowBlur=18;
+  g.beginPath(); g.arc(cx,cy,coreR,spin*2,spin*2+5.2); g.stroke();
+  g.lineWidth=1; g.beginPath(); g.arc(cx,cy,coreR*1.45,-spin*1.4,-spin*1.4+2.4); g.stroke();
+  g.beginPath(); g.arc(cx,cy,coreR*1.45,-spin*1.4+3.1,-spin*1.4+5.0); g.stroke();
+  // ticks
+  g.lineWidth=1; g.shadowBlur=0;
+  for (let i=0;i<60;i++){ const a=i/60*6.283+spin*0.5; const r1=coreR*1.75, r2=r1+(i%5?3:7);
+    g.strokeStyle=`hsla(${hue},100%,70%,${i%5?0.25:0.6})`;
+    g.beginPath(); g.moveTo(cx+Math.cos(a)*r1,cy+Math.sin(a)*r1); g.lineTo(cx+Math.cos(a)*r2,cy+Math.sin(a)*r2); g.stroke(); }
+  // core glow
+  const core=g.createRadialGradient(cx,cy,0,cx,cy,coreR*1.2);
+  core.addColorStop(0,`hsla(${hue-15},100%,92%,${0.75+lv*0.25})`); core.addColorStop(0.35,`hsla(${hue},100%,65%,0.45)`); core.addColorStop(1,"rgba(0,0,0,0)");
+  g.fillStyle=core; g.beginPath(); g.arc(cx,cy,coreR*1.2,0,6.283); g.fill();
+
+  // outer scale arc (big HUD ring)
+  g.lineWidth=1; g.strokeStyle=`hsla(${hue},100%,65%,0.18)`;
+  g.beginPath(); g.arc(cx,cy,R*1.62,0,6.283); g.stroke();
+  g.lineWidth=3; g.strokeStyle=`hsla(${hue},100%,65%,${0.25+activity*0.35})`;
+  g.beginPath(); g.arc(cx,cy,R*1.62,-spin*0.4,-spin*0.4+0.9+activity*1.2); g.stroke();
+  // audio waveform ring when there is sound
+  if (lv > 0.02 && analyser && freqData){
+    g.lineWidth=1.2; g.strokeStyle=`hsla(${hue-10},100%,75%,${0.3+lv*0.6})`; g.beginPath();
+    const n=64;
+    for (let i=0;i<=n;i++){ const a=i/n*6.283; const f=(state==="speaking"&&!speakingViaBuffer)? (Math.sin(t*14+i)*0.5+0.5)*lv : (freqData[(i%n)+2]||0)/255;
+      const r=R*1.5 + f*R*0.12; const x=cx+Math.cos(a)*r, y=cy+Math.sin(a)*r; i?g.lineTo(x,y):g.moveTo(x,y); }
+    g.stroke();
+  }
+
+  // sparks
+  for (const s of SPARKS){
+    s.d += s.v*(1+activity*2+lv*3); if (s.d>1){ s.d=0; s.a=Math.random()*6.28; }
+    const r = R*(0.3 + s.d*1.6); const x=cx+Math.cos(s.a+spin*0.2)*r, y=cy+Math.sin(s.a+spin*0.2)*r*(0.85+s.z*0.15);
+    g.fillStyle=`hsla(${hue},100%,75%,${(1-s.d)*0.55})`; g.fillRect(x,y,1.4,1.4);
+  }
+
+  // HUD bars
+  els.rLevel.style.width = (lv*100).toFixed(0)+"%";
+  els.rAct.style.width = (activity*100).toFixed(0)+"%";
+
+  requestAnimationFrame(frame);
+}
+requestAnimationFrame(frame);
+
+// ---------- clock ----------
+function tick(){ const d=new Date();
+  $("time").textContent=d.toLocaleTimeString("en-AU",{hour12:false});
+  $("date").textContent=d.toLocaleDateString("en-AU",{weekday:"short",day:"2-digit",month:"short",year:"numeric"}).toUpperCase(); }
+setInterval(tick,1000); tick();
+
+// ---------- log ----------
+function addLog(who, text){
+  const p=document.createElement("p"); p.className = who==="you"?"you":"j";
+  p.innerHTML = `<span class="tag">${who==="you"?"YOU":"JARVIS"}</span>`;
+  p.appendChild(document.createTextNode(text));
+  els.log.appendChild(p); els.log.scrollTop = els.log.scrollHeight; return p;
+}
+function caption(text, interim=false){ els.caption.textContent=text; els.caption.classList.toggle("interim", interim); }
+
+// ---------- speech recognition (ears) ----------
+const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+let rec = null, recActive = false;
+if (SR){
+  rec = new SR(); rec.lang = "en-AU"; rec.interimResults = true; rec.continuous = false;
+  rec.onresult = e => {
+    let interim="", final="";
+    for (let i=e.resultIndex;i<e.results.length;i++){ const r=e.results[i]; (r.isFinal? (final+=r[0].transcript) : (interim+=r[0].transcript)); }
+    if (interim) caption(interim, true);
+    if (final.trim()){ recActive=false; try{rec.stop();}catch(_){} handleUser(final.trim()); }
+  };
+  rec.onerror = e => { recActive=false; if (state==="listening") setState("idle");
+    if (e.error==="not-allowed") caption("Microphone access was blocked. Allow it in the address bar, sir.");
+    else if (e.error==="network") caption("Speech recognition needs an internet connection in this browser. Type instead, or switch to RealtimeSTT.");
+    else if (e.error!=="no-speech" && e.error!=="aborted") caption("Speech error: "+e.error); };
+  rec.onend = () => { recActive=false; if (state==="listening") setState("idle"); };
+  els.rInput.textContent = "WEB SPEECH";
+} else {
+  els.rInput.textContent = "TEXT ONLY";
+  els.mic.title = "Speech recognition is not available in this browser — use Chrome";
+}
+
+async function startListening(){
+  if (!rec) { caption("Voice input needs Chrome. You can type below.", true); return; }
+  if (state==="speaking") stopSpeaking();
+  if (recActive || state==="thinking") return;
+  await attachMic();
+  caption("", true); setState("listening");
+  try{ rec.start(); recActive=true; }catch(e){ /* already started */ }
+}
+function stopListening(){ if (rec && recActive){ try{rec.stop();}catch(_){} } }
+
+// ---------- TTS (voice) ----------
+// Each sentence starts fetching its audio as soon as it is queued (one request at a time,
+// so Kokoro is never asked to do two things at once), and plays in order.
+let speakQueue = [], speaking = false, speakingViaBuffer = false, currentSrc = null, fakeTimer = null;
+let serverVoiceOk = null, lastFetch = Promise.resolve();
+
+function enqueueSpeech(text){
+  text = text.replace(/[*_#`>]/g,"").trim();
+  if (!text) return;
+  const item = {text, audio:null};
+  if (cfg.serverVoice && serverVoiceOk !== false){
+    item.audio = lastFetch = lastFetch.catch(()=>{}).then(() => fetchVoice(text));
+    item.audio.catch(()=>{});   // handled when played
+  }
+  speakQueue.push(item);
+  if (!speaking) playNext();
+}
+async function fetchVoice(text){
+  ensureAudio();
+  const res = await fetch(api("/speak"), {method:"POST", headers:{"Content-Type":"application/json"}, body:JSON.stringify({text})});
+  if (!res.ok) throw new Error("/speak HTTP "+res.status);
+  return actx.decodeAudioData(await res.arrayBuffer());
+}
+async function playNext(){
+  if (!speakQueue.length){ speaking=false; speakingViaBuffer=false; onSpeechDone(); return; }
+  speaking = true; setState("speaking");
+  const item = speakQueue.shift();
+  if (item.audio){
+    try { await playBuffer(await item.audio); serverVoiceOk = true; els.rVoice.textContent = "KOKORO · BM_GEORGE"; return playNext(); }
+    catch(e){ console.warn("Server voice failed, using browser voice:", e); serverVoiceOk = false; }
+  }
+  els.rVoice.textContent = "BROWSER VOICE";
+  await speakBrowser(item.text);
+  playNext();
+}
+function playBuffer(buf){
+  return new Promise(resolve => {
+    const src = actx.createBufferSource(); src.buffer = buf;
+    // route through the analyser so the core pulses with his voice
+    if (micSource) { try{ micSource.disconnect(analyser); }catch(_){} }
+    src.connect(analyser); analyser.connect(actx.destination);
+    speakingViaBuffer = true; currentSrc = src;
+    src.onended = () => { try{ analyser.disconnect(actx.destination); }catch(_){} if (micSource) micSource.connect(analyser); currentSrc=null; resolve(); };
+    src.start();
+  });
+}
+function pickBrowserVoice(){
+  const vs = speechSynthesis.getVoices();
+  return vs.find(v=>/en-GB/i.test(v.lang) && /male|george|ryan|daniel|thomas/i.test(v.name))
+      || vs.find(v=>/en-GB/i.test(v.lang)) || vs.find(v=>/^en/i.test(v.lang)) || null;
+}
+function speakBrowser(text){
+  speakingViaBuffer = false;
+  return new Promise(resolve => {
+    if (!("speechSynthesis" in window)) return resolve();
+    const u = new SpeechSynthesisUtterance(text);
+    const v = pickBrowserVoice(); if (v) u.voice = v;
+    u.rate = 1.0; u.pitch = 0.9;
+    clearInterval(fakeTimer);
+    fakeTimer = setInterval(()=>{ fakeLevel = 0.25 + Math.random()*0.45; }, 90);
+    u.onboundary = () => { fakeLevel = 0.8; };
+    u.onend = u.onerror = () => { clearInterval(fakeTimer); fakeLevel = 0; resolve(); };
+    speechSynthesis.speak(u);
+  });
+}
+function stopSpeaking(){
+  speakQueue = [];
+  if (currentSrc){ try{ currentSrc.stop(); }catch(_){} }
+  if ("speechSynthesis" in window) speechSynthesis.cancel();
+  clearInterval(fakeTimer); fakeLevel = 0;
+}
+let replyFinished = true;
+function onSpeechDone(){
+  if (!replyFinished) return;
+  setState("idle");
+  if (cfg.handsFree) setTimeout(startListening, 350);
+}
+function sentences(text){
+  return (text.match(/[^.!?…]+[.!?…]+["')\]]*|[^.!?…]+$/g) || [text]).map(x=>x.trim()).filter(Boolean);
+}
+
+// ---------- brain (JARVIS-X /chat: tools, memory and audit log all apply) ----------
+let abortCtl = null;
+async function handleUser(text){
+  addLog("you", text); caption(text, true);
+  setState("thinking"); replyFinished = false;
+  const started = performance.now();
+  const line = addLog("j", "…");
+  abortCtl = new AbortController();
+  try{
+    const res = await fetch(api("/chat"), {
+      method:"POST", headers:{"Content-Type":"application/json"}, signal:abortCtl.signal,
+      body: JSON.stringify({message:text.slice(0,4000), session:SESSION})
+    });
+    if (!res.ok) throw new Error("/chat HTTP "+res.status);
+    const reply = ((await res.json()).reply || "").trim();
+    els.rLat.textContent = Math.round(performance.now()-started)+" ms";
+    els.rModel.textContent = "ONLINE";
+    line.lastChild.textContent = reply; caption(reply);
+    els.log.scrollTop = els.log.scrollHeight;
+    replyFinished = true;
+    sentences(reply).forEach(enqueueSpeech);
+    if (!speaking && !speakQueue.length) onSpeechDone();
+  }catch(e){
+    replyFinished = true;
+    if (e.name === "AbortError") { line.lastChild.textContent = "(stopped)"; setState("idle"); return; }
+    console.error(e);
+    const msg = "I can't reach my core, sir. Is uvicorn running? Start it with: uvicorn main:app --reload";
+    line.lastChild.textContent = msg; caption(msg); setState("offline");
+    els.rModel.textContent = "OFFLINE";
+  }
+}
+
+// ---------- controls ----------
+els.text.addEventListener("keydown", e => {
+  if (e.key==="Enter" && els.text.value.trim()){
+    ensureAudio(); const v=els.text.value.trim(); els.text.value="";
+    if (state==="speaking") stopSpeaking();
+    handleUser(v);
+  }
+});
+els.mic.addEventListener("click", () => recActive ? stopListening() : startListening());
+els.hands.addEventListener("click", () => { cfg.handsFree=!cfg.handsFree; saveCfg(); els.hands.classList.toggle("on", cfg.handsFree); if (cfg.handsFree && state==="idle") startListening(); });
+els.set.addEventListener("click", () => els.settings.classList.toggle("open"));
+
+let spaceDown = false;
+addEventListener("keydown", e => {
+  if (e.code==="Space" && document.activeElement!==els.text && !spaceDown){ e.preventDefault(); spaceDown=true; startListening(); }
+  if (e.key==="Escape"){ stopSpeaking(); stopListening(); abortCtl?.abort(); replyFinished=true; setState("idle"); caption(""); }
+});
+addEventListener("keyup", e => { if (e.code==="Space" && spaceDown){ spaceDown=false; } });
+
+// settings bindings
+$("s-server").value = cfg.server;
+$("s-server").onchange = e => { cfg.server = e.target.value.trim(); saveCfg(); boot(); };
+$("s-servervoice").checked = cfg.serverVoice;
+$("s-servervoice").onchange = e => { cfg.serverVoice = e.target.checked; serverVoiceOk = null; saveCfg(); };
+els.hands.classList.toggle("on", cfg.handsFree);
+if ("speechSynthesis" in window) speechSynthesis.onvoiceschanged = ()=>{};
+
+// ---------- boot: check the core ----------
+async function boot(){
+  setState("idle"); els.rModel.textContent = "CHECKING…";
+  try{
+    const j = await (await fetch(api("/"))).json();
+    if (j.status !== "online") throw new Error("unexpected status");
+    els.rModel.textContent = "ONLINE";
+    caption("All systems online. Press the microphone or hold Space, sir.");
+  }catch(e){
+    setState("offline"); els.rModel.textContent = "OFFLINE";
+    caption("JARVIS-X isn't answering. Start it with uvicorn main:app --reload, then open http://127.0.0.1:8000/hud");
+  }
+  els.rVoice.textContent = cfg.serverVoice ? "KOKORO · BM_GEORGE" : "BROWSER VOICE";
+}
+boot();
+</script>
+</body>
+</html>
