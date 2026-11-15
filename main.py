@@ -12,6 +12,7 @@ import brain
 import config
 import doctor
 import memory
+import reminders
 
 HUD_PAGE = config.BASE_DIR / "ui" / "index.html"
 _voice_lock = threading.Lock()  # Kokoro does one sentence at a time
@@ -32,6 +33,8 @@ def _warm_up_voice() -> None:
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     memory.init_db()
+    reminders.init_db()
+    reminders.start_checker()
     if os.environ.get("JARVIS_NO_VOICE_WARMUP") != "1":
         threading.Thread(target=_warm_up_voice, daemon=True).start()
     yield
@@ -108,6 +111,20 @@ def speak(request: SpeakRequest):
 def audit(limit: int = 20):
     """Recent tool calls, newest first. Shows what Jarvis did and what was refused."""
     return memory.recent_audit(min(max(limit, 1), 200))
+
+
+@app.get("/reminders")
+def list_reminders():
+    """Reminders still waiting to go off."""
+    return reminders.pending()
+
+
+@app.get("/reminders/due")
+def due_reminders():
+    """Reminders that have gone off and haven't been announced yet. The HUD polls this
+    and says each one out loud; each is handed out only once."""
+    reminders.fire_due()
+    return reminders.take_unannounced()
 
 
 @app.get("/stats")

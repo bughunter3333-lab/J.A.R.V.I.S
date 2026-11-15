@@ -8,6 +8,10 @@ ddgs
 httpx
 psutil
 
+# Reading documents
+pypdf
+python-docx
+
 # Voice
 kokoro
 soundfile
