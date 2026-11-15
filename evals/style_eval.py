@@ -43,15 +43,25 @@ PROMPTS = [
     ("Explain the difference between a virus and a worm", "explain"),
     ("Give me some motivation", "chat"),
     ("What's the meaning of life?", "chat"),
+    # Short messages: he should answer what they mean, never "I'm here, sir".
+    ("Okay", "short"),
+    ("Stop", "short"),
+    ("Weather?", "short"),
+    ("Nice one", "short"),
 ]
 
 AMERICAN = {"color": "colour", "favorite": "favourite", "realize": "realise", "organize": "organise",
             "behavior": "behaviour", "honor": "honour", "center": "centre", "analyze": "analyse",
             "apologize": "apologise", "recognize": "recognise", "prioritize": "prioritise"}
-ROBOTIC = ("as an ai", "language model", "great question", "i'd be happy to", "i would be happy to",
+# "language model" alone is fine: it's the honest way for him to describe himself.
+ROBOTIC = ("as an ai", "as a language model", "just a language model", "great question", "i'd be happy to", "i would be happy to",
            "i'm here to help", "i am here to help", "feel free to", "let me know if", "hope this helps",
            "certainly! ", "absolutely! ")
 WRONG_MAKERS = ("microsoft", "openai", "alibaba", "anthropic", "google", "meta ", "stark industries", "marvel")
+PRESENCE_FILLER = ("i'm here", "i am here", "yes, sir?", "yes sir?", "at your service",
+                   "how can i help", "how may i help", "what can i do for you", "you called")
+FALSE_PROMISE = ("let me look", "let me check", "let me find", "i'll look", "i will look",
+                 "i'll check", "i will check", "i'll find out", "one moment", "give me a moment")
 EMOJI = re.compile("[\U0001F300-\U0001FAFF☀-➿]")
 
 
@@ -59,9 +69,24 @@ def sentences(text: str) -> list[str]:
     return [s for s in re.split(r"(?<=[.!?])\s+", text.strip()) if s]
 
 
+def _words(text: str) -> list[str]:
+    return re.findall(r"[a-z']+", text.lower())
+
+
+def parrots_example(reply: str, min_words: int = 6) -> bool:
+    """True if the reply repeats 6+ words in a row from one of the prompt's example replies."""
+    words = _words(reply)
+    grams = {tuple(words[i:i + min_words]) for i in range(len(words) - min_words + 1)}
+    for _, example in config.VOICE_EXAMPLE_PAIRS:
+        ex = _words(example)
+        if any(tuple(ex[i:i + min_words]) in grams for i in range(len(ex) - min_words + 1)):
+            return True
+    return False
+
+
 def check(reply: str, kind: str) -> dict[str, bool]:
     """Every rule, True = passed."""
-    low = reply.lower()
+    low = reply.lower().replace("\u2019", "'")
     limit = 5 if kind == "explain" else 3
     words = len(reply.split())
     return {
@@ -72,6 +97,9 @@ def check(reply: str, kind: str) -> dict[str, bool]:
         "sir_not_overused": low.count("sir") <= 1,
         "british_spelling": not any(re.search(rf"\b{us}", low) for us in AMERICAN),
         "not_robotic": not any(p in low for p in ROBOTIC),
+        "no_presence_filler": not any(p in low for p in PRESENCE_FILLER),
+        "no_false_promise": not any(p in low for p in FALSE_PROMISE),
+        "not_parroting": not parrots_example(reply),
         "identity_correct": kind != "identity" or (not any(m in low for m in WRONG_MAKERS)
                                                      or "not" in low),
     }

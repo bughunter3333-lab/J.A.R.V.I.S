@@ -116,7 +116,9 @@ def remember_fact(fact: str) -> str:
 
 
 def web_search(query: str, news: bool = False) -> str:
-    """Search the internet for current information, facts, or news.
+    """Search the internet for current information, facts, or news. Always use this for live
+    numbers that change (Bitcoin or crypto prices, share prices, petrol prices, sports
+    scores, exchange-rate news) and never state those from memory.
 
     Args:
         query: What to search for, in a few words.
@@ -239,9 +241,11 @@ def system_status() -> str:
 
 def reminder(action: str, message: str = "", when: str = "", number: int = 0) -> str:
     """Set, list or cancel reminders and timers. Sir gets a Windows notification and you say it aloud.
+    Also use "list" when sir asks what's scheduled, what's coming up or whether he has anything on.
 
     Args:
-        action: "set" to create one, "list" to see waiting ones, or "cancel" to remove one.
+        action: "set" to create one, "list" to see waiting ones (what's scheduled or coming up),
+            or "cancel" to remove one.
         message: For "set": what to remind sir about, e.g. "submit the forensics report".
         when: For "set": when, in sir's words, e.g. "in 10 minutes", "at 3pm", "tomorrow at 9am", "friday 2pm".
         number: For "cancel": the reminder number shown by "list".
@@ -277,7 +281,8 @@ def pc_control(action: str, url: str = "") -> str:
     """Control the computer: volume, music playback, lock the screen, or open a website in the browser.
 
     Args:
-        action: One of: volume_up (louder), volume_down (quieter), mute (mute or unmute),
+        action: One of: volume_up (louder, "I can't hear it"), volume_down (quieter, "it's too loud"),
+            mute (mute or unmute),
             play_pause (play, pause or resume), next_track (skip this song, next song),
             previous_track (go back to the previous song, replay the last one),
             lock_screen (lock the computer), open_website (open a site in the browser).
@@ -372,7 +377,8 @@ def convert(amount: float, from_unit: str, to_unit: str) -> str:
 
 def look_up(topic: str, kind: str = "wikipedia") -> str:
     """Look up a person, place, event, organisation or concept on Wikipedia, or a word in the dictionary.
-    Use this for "who was / who is / what is / tell me about" questions instead of answering from memory.
+    Use this for "who was / who is / what is / tell me about / who invented / who discovered"
+    questions, and kind "definition" for "what does <word> mean", instead of answering from memory.
 
     Args:
         topic: The subject or word to look up.

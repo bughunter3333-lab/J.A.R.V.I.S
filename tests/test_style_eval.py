@@ -35,3 +35,27 @@ def test_run_uses_a_throwaway_database(tmp_path, monkeypatch):
 def test_prompt_sections_are_all_in_the_system_prompt():
     for part in (config.IDENTITY, config.VOICE, config.VOICE_EXAMPLES, config.TOOL_RULES, config.SAFETY_RULES):
         assert part in config.SYSTEM_PROMPT
+
+
+def _words(text):
+    import re
+    return set(re.findall(r"[a-z']+", text.lower())) - {"a", "the", "i", "is", "you", "my", "to", "of", "what", "what's"}
+
+
+def test_voice_examples_stay_off_the_style_test_topics():
+    """If an example covers the same thing the test asks, the test measures memorisation."""
+    for said, _ in config.VOICE_EXAMPLE_PAIRS:
+        for prompt, _ in style_eval.PROMPTS:
+            a, b = _words(said), _words(prompt)
+            overlap = len(a & b) / max(1, len(a | b))
+            assert overlap < 0.34, (said, prompt)
+
+
+def test_new_rules():
+    assert not style_eval.check("I'm here, sir.", "short")["no_presence_filler"]
+    assert not style_eval.check("Let me look that up for you, sir.", "chat")["no_false_promise"]
+    assert style_eval.check("I'm a language model running on your PC, sir.", "identity")["not_robotic"]
+    assert not style_eval.check("As a language model I can't.", "chat")["not_robotic"]
+    copied = config.VOICE_EXAMPLE_PAIRS[0][1]
+    assert not style_eval.check(copied, "chat")["not_parroting"]
+    assert style_eval.check("Stopped, sir.", "short")["not_parroting"]

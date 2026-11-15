@@ -16,6 +16,11 @@ GOODBYES = ("goodbye jarvis", "good bye jarvis", "bye jarvis", "that will be all
 FAREWELL = "Very good, sir. I shall be here if you need me."
 # Whisper sometimes invents these when it hears only silence or noise.
 PHANTOM_PHRASES = {"thanks for watching", "thank you for watching", "you"}
+# Sounds that carry no request. A transcript made only of these and his name is dropped.
+FILLERS = {"um", "uh", "umm", "uhh", "er", "erm", "hmm", "hm", "mm", "mmm", "ah", "oh", "eh"}
+_WAKE = r"(?:(?:hey|hi|hello|ok|okay|yo)[\s,]+)?jarvis"
+_LEADING_WAKE = re.compile(rf"^\s*{_WAKE}\b[\s,.!?:;-]*", re.I)
+_TRAILING_WAKE = re.compile(rf"[\s,]+{_WAKE}[\s.!?]*$", re.I)
 
 
 def clean(heard: str) -> str:
@@ -23,9 +28,23 @@ def clean(heard: str) -> str:
     return re.sub(r"[^a-z ]", "", heard.lower()).strip()
 
 
+def strip_wake(heard: str) -> str:
+    """'Jarvis, what time is it?' -> 'what time is it?'. The wake word already did its job;
+    left in, a short request reads to the model as sir just calling his name, and he
+    answers "I'm here, sir" instead of doing what was asked."""
+    text = _LEADING_WAKE.sub("", heard.strip())
+    text = _TRAILING_WAKE.sub("", text) if clean(text) != "jarvis" else ""
+    return text.strip()
+
+
 def is_real_speech(heard: str) -> bool:
-    text = clean(heard)
-    return len(text) >= 2 and text not in PHANTOM_PHRASES
+    """False for silence, Whisper's phantom phrases, and anything that is only his name
+    or 'um'/'hmm' (nothing was actually asked)."""
+    text = clean(strip_wake(heard))
+    if not text or text in PHANTOM_PHRASES:
+        return False
+    words = [w for w in text.split() if w not in FILLERS]
+    return bool(words) and len(" ".join(words)) >= 2
 
 
 def is_goodbye(heard: str) -> bool:
@@ -46,7 +65,7 @@ def conversation_loop(listen, think, say, mute=lambda on: None, show=print) -> N
         if not is_real_speech(heard):
             continue
         show(f"You:    {heard.strip()}")
-        reply = FAREWELL if is_goodbye(heard) else think(heard.strip())
+        reply = FAREWELL if is_goodbye(heard) else think(strip_wake(heard))
         show(f"Jarvis: {reply}")
         mute(True)
         try:
@@ -88,6 +107,9 @@ def make_recorder(use_wake_word: bool = True, use_microphone: bool = True, **cal
         no_log_file=True,
         use_microphone=use_microphone,
         post_speech_silence_duration=0.8,
+        # Keep 0.5 s of audio from before speech was detected, so the first word of a
+        # short phrase ("stop", "mute") isn't clipped off (the default is 0.2 s).
+        pre_recording_buffer_duration=0.5,
     )
     if use_wake_word:
         options.update(wake_backend_options())
