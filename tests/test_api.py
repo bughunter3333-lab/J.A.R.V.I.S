@@ -82,3 +82,13 @@ def test_stats_endpoint(client):
     body = client.get("/stats").json()
     assert body["requests"] == 2 and body["errors"] == 1
     assert body["tools_used"] == {"get_current_time": 1}
+
+
+def test_forget_history_clears_only_that_session(client):
+    memory.add_message("hud", "user", "who made you")
+    memory.add_message("hud", "assistant", "Microsoft, sir.")
+    memory.add_message("other", "user", "keep me")
+    memory.add_fact("Sir studies cybersecurity.")
+    assert client.delete("/history/hud").json() == {"session": "hud", "deleted": 2}
+    assert memory.recent_messages("hud") == []
+    assert len(memory.recent_messages("other")) == 1 and memory.all_facts()

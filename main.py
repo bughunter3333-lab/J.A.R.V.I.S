@@ -107,6 +107,13 @@ def speak(request: SpeakRequest):
     return Response(buffer.getvalue(), media_type="audio/wav")
 
 
+@app.delete("/history/{session}")
+def forget_history(session: str):
+    """Clear one conversation so Jarvis stops repeating something wrong he said earlier.
+    Remembered facts and the audit log are not touched."""
+    return {"session": session, "deleted": memory.clear_session(session[:64])}
+
+
 @app.get("/audit")
 def audit(limit: int = 20):
     """Recent tool calls, newest first. Shows what Jarvis did and what was refused."""

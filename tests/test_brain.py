@@ -84,3 +84,24 @@ def test_facts_reach_the_system_prompt_in_new_conversations(monkeypatch):
     seen = script(monkeypatch, say("47, sir."))
     brain.respond("what is my lucky number?", "brand-new")
     assert "lucky number is 47" in seen[0][0]["content"]
+
+
+@pytest.mark.parametrize("reply,expected", [
+    ("It is noon, sir. Is there anything else I can assist you with?", "It is noon, sir."),
+    ("Done. How else may I help you today?", "Done."),
+    ("Shall I open notepad?", "Shall I open notepad?"),
+    ("Would you like the weather for Melbourne as well?", "Would you like the weather for Melbourne as well?"),
+])
+def test_stock_offer_is_stripped_but_real_questions_stay(reply, expected):
+    assert brain.strip_stock_offer(reply) == expected
+
+
+def test_stock_offer_is_stripped_end_to_end(monkeypatch):
+    script(monkeypatch, say("Good evening, sir. Is there anything else I can assist you with?"))
+    assert brain.respond("hi", "s") == "Good evening, sir."
+
+
+def test_system_prompt_states_who_built_him():
+    prompt = brain._system_prompt()
+    assert "built by sir" in prompt and "bughunter3333-lab/J.A.R.V.I.S" in prompt
+    assert "not related to Microsoft" in prompt
