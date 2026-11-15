@@ -3,6 +3,8 @@
 - Apps: only those in config.ALLOWED_APPS can be opened.
 - Files: notes are written only inside config.WORKSPACE, never overwritten, .txt only.
 - Every call (allowed or refused) goes into the audit log via run_tool().
+- Secrets and ID numbers are never written to notes or memory (see security.py).
+- Note contents are handed to the model as untrusted data, never as instructions.
 """
 import re
 import subprocess
@@ -11,6 +13,7 @@ from pathlib import Path
 
 import config
 import memory
+import security
 
 MAX_NOTE_CHARS = 20_000
 
@@ -57,6 +60,7 @@ def create_note(title: str, content: str) -> str:
     """
     if len(content) > MAX_NOTE_CHARS:
         raise ToolRefused(f"Note is too long (limit {MAX_NOTE_CHARS} characters).")
+    content = security.clean_for_storage("create_note", content)
     config.WORKSPACE.mkdir(parents=True, exist_ok=True)
     path = _safe_note_path(title)
     if path.exists():
@@ -78,7 +82,9 @@ def search_notes(query: str) -> str:
         text = path.read_text(encoding="utf-8", errors="replace")
         if needle in path.stem.lower() or needle in text.lower():
             hits.append(f"{path.name}: {text[:200]}")
-    return "\n".join(hits[:5]) if hits else "No notes matched."
+    if not hits:
+        return "No notes matched."
+    return security.as_untrusted("saved notes", "\n".join(hits[:5]))
 
 
 def remember_fact(fact: str) -> str:
@@ -89,6 +95,12 @@ def remember_fact(fact: str) -> str:
     """
     if not fact.strip() or len(fact) > 300:
         raise ToolRefused("A fact must be one short sentence.")
+    sensitive = [f for f in security.scan(fact, kinds=("secret", "pii")) if f.name != "email"]
+    if sensitive:
+        security.log("remember_fact", sensitive)
+        raise ToolRefused(
+            "That looks like a password, key or ID number. Those are never kept in memory."
+        )
     memory.add_fact(fact)
     return "Remembered."
 
@@ -110,5 +122,7 @@ def run_tool(name: str, args: dict) -> str:
             result, ok = f"Refused: {exc}", False
         except Exception as exc:  # bad arguments from the model, OS errors, etc.
             result, ok = f"Failed: {type(exc).__name__}: {exc}", False
-    memory.log_tool(name, args, result, ok)
+    # The audit log must not become a copy of the secrets the tools refused to store.
+    safe_args = {k: security.redact(v) if isinstance(v, str) else v for k, v in args.items()}
+    memory.log_tool(name, safe_args, security.redact(result), ok)
     return result

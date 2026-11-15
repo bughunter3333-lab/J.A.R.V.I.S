@@ -394,11 +394,21 @@ function enqueueSpeech(text){
   speakQueue.push(item);
   if (!speaking) playNext();
 }
+const VOICE_TIMEOUT_MS = 20000;   // if Kokoro is still loading, don't sit in silence
 async function fetchVoice(text){
   ensureAudio();
-  const res = await fetch(api("/speak"), {method:"POST", headers:{"Content-Type":"application/json"}, body:JSON.stringify({text})});
-  if (!res.ok) throw new Error("/speak HTTP "+res.status);
-  return actx.decodeAudioData(await res.arrayBuffer());
+  const ctl = new AbortController(); const timer = setTimeout(()=>ctl.abort(), VOICE_TIMEOUT_MS);
+  try{
+    const res = await fetch(api("/speak"), {method:"POST", headers:{"Content-Type":"application/json"}, body:JSON.stringify({text}), signal:ctl.signal});
+    if (!res.ok) throw new Error("/speak HTTP "+res.status+" "+(await res.text()).slice(0,200));
+    return await actx.decodeAudioData(await res.arrayBuffer());
+  } finally { clearTimeout(timer); }
+}
+function voiceFailed(e){
+  console.warn("Server voice failed, using browser voice:", e);
+  serverVoiceOk = false;
+  // try Kokoro again in a minute (it may just have been loading)
+  setTimeout(()=>{ if (serverVoiceOk === false) serverVoiceOk = null; }, 60000);
 }
 async function playNext(){
   if (!speakQueue.length){ speaking=false; speakingViaBuffer=false; onSpeechDone(); return; }
@@ -406,7 +416,7 @@ async function playNext(){
   const item = speakQueue.shift();
   if (item.audio){
     try { await playBuffer(await item.audio); serverVoiceOk = true; els.rVoice.textContent = "KOKORO · BM_GEORGE"; return playNext(); }
-    catch(e){ console.warn("Server voice failed, using browser voice:", e); serverVoiceOk = false; }
+    catch(e){ voiceFailed(e); }
   }
   els.rVoice.textContent = "BROWSER VOICE";
   await speakBrowser(item.text);
@@ -471,7 +481,11 @@ async function handleUser(text){
       method:"POST", headers:{"Content-Type":"application/json"}, signal:abortCtl.signal,
       body: JSON.stringify({message:text.slice(0,4000), session:SESSION})
     });
-    if (!res.ok) throw new Error("/chat HTTP "+res.status);
+    if (!res.ok){
+      let detail = "HTTP "+res.status;
+      try{ detail = (await res.json()).detail || detail; }catch(_){}
+      throw Object.assign(new Error(detail), {fromServer:true});
+    }
     const reply = ((await res.json()).reply || "").trim();
     els.rLat.textContent = Math.round(performance.now()-started)+" ms";
     els.rModel.textContent = "ONLINE";
@@ -484,9 +498,11 @@ async function handleUser(text){
     replyFinished = true;
     if (e.name === "AbortError") { line.lastChild.textContent = "(stopped)"; setState("idle"); return; }
     console.error(e);
-    const msg = "I can't reach my core, sir. Is uvicorn running? Start it with: uvicorn main:app --reload";
+    const msg = e.fromServer
+      ? "My core reports a fault, sir. " + e.message
+      : "I can't reach my server, sir. Is uvicorn running? Start it with: uvicorn main:app --reload";
     line.lastChild.textContent = msg; caption(msg); setState("offline");
-    els.rModel.textContent = "OFFLINE";
+    els.rModel.textContent = e.fromServer ? "FAULT" : "OFFLINE";
   }
 }
 
@@ -520,14 +536,21 @@ if ("speechSynthesis" in window) speechSynthesis.onvoiceschanged = ()=>{};
 // ---------- boot: check the core ----------
 async function boot(){
   setState("idle"); els.rModel.textContent = "CHECKING…";
-  try{
-    const j = await (await fetch(api("/"))).json();
-    if (j.status !== "online") throw new Error("unexpected status");
-    els.rModel.textContent = "ONLINE";
-    caption("All systems online. Press the microphone or hold Space, sir.");
-  }catch(e){
+  let health;
+  try{ health = await (await fetch(api("/health"))).json(); }
+  catch(e){
     setState("offline"); els.rModel.textContent = "OFFLINE";
     caption("JARVIS-X isn't answering. Start it with uvicorn main:app --reload, then open http://127.0.0.1:8000/hud");
+    return;
+  }
+  const bad = (health.checks||[]).find(c=>c.status==="fail");
+  const warn = (health.checks||[]).find(c=>c.status==="warn");
+  if (bad){
+    setState("offline"); els.rModel.textContent = "FAULT";
+    caption(`${bad.name}: ${bad.detail}. ${bad.fix}`);
+  } else {
+    els.rModel.textContent = "ONLINE";
+    caption(warn ? `Online, sir. Note: ${warn.detail}.` : "All systems online. Press the microphone or hold Space, sir.");
   }
   els.rVoice.textContent = cfg.serverVoice ? "KOKORO · BM_GEORGE" : "BROWSER VOICE";
 }

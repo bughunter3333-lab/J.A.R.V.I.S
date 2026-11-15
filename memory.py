@@ -22,6 +22,9 @@ def init_db() -> None:
                 id INTEGER PRIMARY KEY, fact TEXT UNIQUE, ts TEXT);
             CREATE TABLE IF NOT EXISTS audit (
                 id INTEGER PRIMARY KEY, ts TEXT, tool TEXT, args TEXT, result TEXT, ok INTEGER);
+            CREATE TABLE IF NOT EXISTS traces (
+                id INTEGER PRIMARY KEY, ts TEXT, session TEXT, model TEXT,
+                latency_ms INTEGER, rounds INTEGER, tools TEXT, ok INTEGER, error TEXT);
             """
         )
 
@@ -75,3 +78,39 @@ def recent_audit(limit: int = 20) -> list[dict]:
         {"ts": ts, "tool": tool, "args": json.loads(args), "result": result, "ok": bool(ok)}
         for ts, tool, args, result, ok in rows
     ]
+
+
+def add_trace(session: str, model: str, latency_ms: int, rounds: int, tools: list[str],
+              ok: bool, error: str = "") -> None:
+    """One row per request: how long it took, how many model rounds, which tools ran."""
+    with closing(_connect()) as db, db:
+        db.execute(
+            "INSERT INTO traces (ts, session, model, latency_ms, rounds, tools, ok, error) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+            (_now(), session, model, int(latency_ms), rounds, json.dumps(tools), int(ok), error[:300]),
+        )
+
+
+def trace_stats(limit: int = 100) -> dict:
+    """Summary of the most recent requests, for /stats and the HUD."""
+    with closing(_connect()) as db:
+        rows = db.execute(
+            "SELECT latency_ms, ok, tools FROM traces ORDER BY id DESC LIMIT ?", (limit,)
+        ).fetchall()
+    if not rows:
+        return {"requests": 0}
+    times = sorted(r[0] for r in rows)
+    tool_count: dict[str, int] = {}
+    for _, _, tools in rows:
+        for name in json.loads(tools):
+            tool_count[name] = tool_count.get(name, 0) + 1
+    return {
+        "requests": len(rows),
+        "errors": sum(1 for r in rows if not r[1]),
+        "latency_ms": {
+            "median": times[len(times) // 2],
+            "p95": times[min(len(times) - 1, int(len(times) * 0.95))],
+            "last": rows[0][0],
+        },
+        "tools_used": tool_count,
+    }
