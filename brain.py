@@ -1,8 +1,9 @@
 """The thinking loop: memory + model + tools."""
+import json
 import re
 import time
 
-from ollama import chat
+from ollama import Message, chat
 
 import approvals
 import config
@@ -29,9 +30,11 @@ STOCK_OFFER = re.compile(
 # catches the promise and makes the model actually call the tool (once).
 PROMISES_ACTION = re.compile(
     r"\b(?:I(?:'ll| will| shall| am going to| am)|let me|allow me)\s+(?:now\s+|just\s+)?"
-    r"(?:adjust|adjusting|turn|turning|lower|lowering|raise|raising|set|setting|open|opening|lock|locking|"
+    # Only harmless or approval-gated actions: never "remind"/"set", which the model uses
+    # rhetorically ("I shall remind you that studying pays") and which act without asking.
+    r"(?:adjust|adjusting|turn|turning|lower|lowering|raise|raising|open|opening|lock|locking|"
     r"check|checking|look|looking|find|finding|search|searching|copy|copying|play|pause|mute|muting|skip|"
-    r"remind|convert|fetch|fetching|get|getting|pull|pulling)\b",
+    r"convert|fetch|fetching|pull|pulling)\b",
     re.I,
 )
 ACTION_NUDGE = (
@@ -65,9 +68,39 @@ def copies_example(sentence: str) -> bool:
     return _words(sentence) in EXAMPLE_LINES
 
 
+# qwen3 sometimes writes its tool call as text ('{"name": "look_up", "arguments": {...}}',
+# often inside a tag or code fence) instead of making it. That must never be spoken;
+# it is turned into the real call.
+TOOL_TEXT_WRAPPER = re.compile(r"</?[a-z_]+>|```(?:json)?", re.I)
+
+
+def tool_call_in_text(text: str):
+    """The tool call(s) a reply spells out as JSON, as one ollama Message, else None.
+    Only when the reply is nothing but calls to real tools."""
+    body = TOOL_TEXT_WRAPPER.sub(" ", text or "").strip()
+    if not body.startswith("{"):
+        return None
+    decoder, calls, i = json.JSONDecoder(), [], 0
+    while i < len(body):
+        try:
+            data, i = decoder.raw_decode(body, i)
+        except ValueError:
+            return None
+        if not isinstance(data, dict) or data.get("name") not in tools.TOOLS:
+            return None
+        args = data.get("arguments") or data.get("parameters") or {}
+        if not isinstance(args, dict):
+            return None
+        calls.append(Message.ToolCall(function=Message.ToolCall.Function(name=data["name"], arguments=args)))
+        while i < len(body) and body[i] in " \n\t\r,":
+            i += 1
+    return Message(role="assistant", content="", tool_calls=calls) if calls else None
+
+
+SPEAKER_LABEL = re.compile(r"^(?:You|Jarvis|JARVIS|Assistant)\s*:\s*")
 # A reply that is nothing but presence filler ("I am here, sir.", "Yes, sir?").
 PRESENCE_ONLY = re.compile(
-    r"^\s*(?:I(?:'m| am) (?:here|listening)|Yes|At your service|How (?:can|may) I (?:help|assist)(?: you)?"
+    r"^\s*(?:I(?:'m| am) (?:here|listening)(?: to (?:assist|help|serve)(?: you)?)?|Yes|At your service|How (?:can|may) I (?:help|assist)(?: you)?"
     r"|(?:Is there )?(?:something|anything) (?:I can|you'd like me to) (?:help|assist)(?: you)?(?: with)?)"
     r"(?:,? sir)?[.?!]?\s*$", re.I)
 ACKNOWLEDGE = "Very good, sir."
@@ -76,6 +109,13 @@ NUDGE = (
     "Sir asked you to remember something, but you did not call the remember_fact tool, "
     "so nothing was saved. Call remember_fact now with the fact, then reply to sir."
 )
+
+
+# A sentence that only offers more help ("If there is something specific you need, please
+# let me know.", "I am here to help."). Dropped when it follows a real answer.
+SIGN_OFF = re.compile(
+    r"\b(?:let me know|feel free|I(?:'m| am) here to (?:help|assist)|I(?:'d| would) be (?:happy|glad) to"
+    r"|happy to help|at your disposal|should you need|if you need anything|here to serve)\b", re.I)
 
 
 def strip_stock_offer(reply: str) -> str:
@@ -143,10 +183,13 @@ class _Sentences:
 
     def _clean(self, sentence: str) -> str | None:
         sentence = security.redact(sentence.strip())
+        if not self.sent:  # "You: A SOC analyst..." copies the examples' "Sir: ... You: ..." layout
+            sentence = SPEAKER_LABEL.sub("", sentence)
         if PRESENCE_ONLY.match(sentence):
             self.dropped_filler = True
             return None  # "I am here, sir." says nothing; never speak it
-        if self.sent and not TRAILING_OFFER.sub("", STOCK_OFFER.sub("", sentence)).strip():
+        if (self.sent or self.dropped_filler) and (SIGN_OFF.search(sentence)
+                          or not TRAILING_OFFER.sub("", STOCK_OFFER.sub("", sentence)).strip()):
             return None  # "Is there anything else...?" after a real answer: drop it
         return sentence or None
 
@@ -246,6 +289,11 @@ def _respond(message: str, session: str, trace: dict):
             messages.append({"role": "user", "content": PARROT_NUDGE.format(message=message)})
             continue
         reply = text.strip()
+        if not tool_calls:
+            spelled = tool_call_in_text(text)
+            if spelled is not None:  # nothing of it was spoken: it has no sentence ending
+                round_out.buffer = ""
+                tool_message, tool_calls, text = spelled, list(spelled.tool_calls), ""
         if tool_calls:
             tool_message.content = text
             tool_message.tool_calls = tool_calls

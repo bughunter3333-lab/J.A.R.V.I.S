@@ -202,3 +202,58 @@ def test_short_acknowledgement_examples_may_be_reused(monkeypatch):
     seen = script(monkeypatch, say("Very good, sir."))
     assert brain.respond("Okay", "s") == "Very good, sir."
     assert len(seen) == 1
+
+
+@pytest.mark.parametrize("spelled", [
+    '<untrusted>\n{"name": "get_current_time", "arguments": {}}\n</untrusted>',
+    '```json\n{"name": "get_current_time", "arguments": {}}\n```',
+    '{"name": "get_current_time", "arguments": {}}',
+])
+def test_tool_call_written_as_text_is_run_not_spoken(monkeypatch, spelled):
+    seen = script(monkeypatch, say(spelled), say("It is noon, sir."))
+    events = list(brain.respond_events("what time is it", "s"))
+    assert [e["text"] for e in events if e["type"] == "sentence"] == ["It is noon, sir."]
+    assert seen[1][-1]["role"] == "tool" and seen[1][-1]["tool_name"] == "get_current_time"
+
+
+def test_json_that_is_not_a_tool_is_left_as_a_reply(monkeypatch):
+    script(monkeypatch, say('{"name": "rm_rf", "arguments": {}}'))
+    assert brain.tool_call_in_text('{"name": "rm_rf", "arguments": {}}') is None
+    assert brain.tool_call_in_text("The time is noon, sir.") is None
+
+
+def test_rhetorical_remind_does_not_force_a_tool(monkeypatch):
+    seen = script(monkeypatch, say("Your call, sir, but I shall remind you that study pays later."))
+    brain.respond("Should I study or play games tonight?", "s")
+    assert len(seen) == 1  # no nudge, so no reminder gets set
+
+
+@pytest.mark.parametrize("reply,kept", [
+    ("I am here to assist, sir. If there is something you need, please let me know.",
+     brain.ACKNOWLEDGE),
+    ("Clean and readable, sir. If you ever need a second opinion, I am here to help.",
+     "Clean and readable, sir."),
+    ("No humour module, sir. But if you'd like a story, I'd be happy to tell one.",
+     "No humour module, sir."),
+])
+def test_sign_off_sentences_after_an_answer_are_dropped(monkeypatch, reply, kept):
+    script(monkeypatch, say(reply))
+    assert brain.respond("hi", "s") == kept
+
+
+def test_several_tool_calls_written_as_text_all_run(monkeypatch):
+    spelled = ('<untrusted>\n{"name": "get_current_time", "arguments": {}}\n</untrusted>\n'
+               '<untrusted>\n{"name": "get_current_time", "arguments": {}}\n</untrusted>')
+    msg = brain.tool_call_in_text(spelled)
+    assert [c.function.name for c in msg.tool_calls] == ["get_current_time", "get_current_time"]
+    assert brain.tool_call_in_text('{"name": "get_current_time", "arguments": {}} and some words') is None
+
+
+def test_speaker_label_is_removed(monkeypatch):
+    script(monkeypatch, say("You: A SOC analyst watches for attacks, sir."))
+    assert brain.respond("What is a SOC analyst?", "s") == "A SOC analyst watches for attacks, sir."
+
+
+def test_purpose_statement_alone_is_filler(monkeypatch):
+    script(monkeypatch, say("I am here to assist, sir."))
+    assert brain.respond("You're useless sometimes", "s") == brain.ACKNOWLEDGE
