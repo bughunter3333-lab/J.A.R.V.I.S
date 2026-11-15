@@ -240,3 +240,36 @@ def test_waiting_event_tells_the_hud_the_wake_phrase():
     lst.start()
     assert wait_for(lst, "waiting")["wake_phrase"] == config.WAKE_PHRASE
     lst.stop()
+
+
+# ---- short phrases: no "I'm here, sir" ------------------------------------------------
+
+import talk  # noqa: E402
+
+
+@pytest.mark.parametrize("said,sent", [
+    ("Jarvis, stop.", "stop."), ("Hey Jarvis, what time is it?", "what time is it?"),
+    ("Thanks, Jarvis.", "Thanks"), ("mute", "mute"), ("Jarvis", ""), ("Hey Jarvis.", ""),
+])
+def test_wake_word_is_stripped_before_the_model_sees_it(said, sent):
+    assert talk.strip_wake(said) == sent
+
+
+@pytest.mark.parametrize("said", ["Jarvis.", "hey jarvis", "Um.", "Hmm", "Jarvis, um", "you"])
+def test_name_or_filler_alone_is_not_a_request(said):
+    assert not talk.is_real_speech(said)
+
+
+@pytest.mark.parametrize("said", ["Stop.", "Mute", "Yes", "No", "Okay", "Jarvis, louder"])
+def test_short_requests_still_count(said):
+    assert talk.is_real_speech(said)
+
+
+def test_name_alone_opens_the_conversation_silently():
+    lst, made = make_listener(["Jarvis.", "Jarvis, stop."])
+    lst.start()
+    heard = wait_for(lst, "heard")
+    assert heard["text"] == "stop."  # the model gets the request, not his name
+    assert len([e for e in lst.events_after(0, 0) if e["type"] == "heard"]) == 1
+    assert lst.conversation
+    lst.stop()

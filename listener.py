@@ -169,7 +169,12 @@ class Listener:
                     self.end_conversation("phrase")
                 else:
                     self._begin_conversation()  # wake word + request starts one
-                    self.emit("heard", text=heard.strip())
+                    self.emit("heard", text=talk.strip_wake(heard))
+            elif heard and self.wake_word and not self.conversation:
+                # Only "Jarvis" (or "um"): sir is about to ask something, so open the
+                # conversation silently and take the next thing he says without the wake word.
+                self._last_activity = time.monotonic()
+                self._begin_conversation()
             self.emit("waiting", wake_word=self.wake_word and not self.conversation,
                       wake_phrase=config.WAKE_PHRASE)
             time.sleep(0.05)
