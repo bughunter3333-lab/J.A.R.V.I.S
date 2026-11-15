@@ -43,10 +43,13 @@ It checks Ollama, the model, the model folder, the GPU, packages, the voice mode
 
 ## The HUD
 
-With the server running, open http://127.0.0.1:8000/hud in Chrome. It shows a blue holographic core that reacts while Jarvis listens, thinks and speaks.
-Hold **Space** (or click the mic) to talk, press **Enter** to send typed text, and **Esc** to stop him. **AUTO** keeps listening after each reply.
-Replies go through `/chat`, so tools, memory and the audit log all apply. His voice comes from `/speak` (Kokoro); if that fails, the browser's own voice takes over.
-Speech input uses Chrome's built-in recognition, which sends audio to Google. For fully local listening, use `talk.py`.
+With the server running, open http://127.0.0.1:8000/hud (any browser). It shows a blue holographic core that reacts while Jarvis listens, thinks and speaks.
+
+- **Talking:** click the mic (or press Space) to switch on listening, then say **"Hey Jarvis"** and your request. The server listens on this PC's microphone with RealtimeSTT, the same as `talk.py`, so nothing goes to Google and it works in Firefox. The mic is muted while he speaks. In ⚙ settings you can turn off the wake word, or switch back to the browser's own speech recognition (Chrome/Edge, which sends audio to Google).
+- **Typing:** press Enter to send, and Esc to stop him.
+- **Replies stream:** the status line shows what he's doing ("Searching the web…"), and he starts speaking after the first sentence.
+- **Approvals:** for anything risky he asks first and shows **Approve / Deny**. Saying "yes" or "no" works too.
+- Replies go through `/chat/stream`, so tools, memory, approvals and the audit log all apply. His voice comes from `/speak` (Kokoro), with the browser voice as a fallback.
 
 ## Talk to him
 
@@ -62,7 +65,7 @@ Say "Hey Jarvis", then your request. Say "goodbye Jarvis" or press Ctrl+C to sto
 | File | Job |
 |---|---|
 | `config.py` | All settings: model, personality, allowed apps, voice |
-| `main.py` | Web API (`/chat`, `/speak`, `/audit`, `/stats`, `/health`, `/hud`) |
+| `main.py` | Web API (`/chat`, `/chat/stream`, `/speak`, `/listen/*`, `/reminders`, `/audit`, `/stats`, `/health`, `/hud`) |
 | `brain.py` | Thinking loop: history + facts + model + tools |
 | `memory.py` | SQLite storage: messages, facts, audit log |
 | `tools.py` | Actions Jarvis can take, with the security rules |
@@ -72,7 +75,10 @@ Say "Hey Jarvis", then your request. Say "goodbye Jarvis" or press Ctrl+C to sto
 | `security.py` | Secret, personal-ID and prompt-injection scanners |
 | `doctor.py` | Health check with fixes |
 | `voice.py` | Text to speech (Kokoro, British voice) |
-| `talk.py` | Voice conversation: wake word, speech recognition, spoken replies |
+| `talk.py` | Voice conversation in the terminal: wake word, speech recognition, spoken replies |
+| `listener.py` | The same listening, run by the server for the HUD |
+| `approvals.py` | Asking sir before risky actions |
+| `evals/tool_eval.py` | Tool-picking test against the real model |
 | `ui/index.html` | The HUD: holographic interface served at `/hud` |
 | `data/` | Database, notes workspace, audio (not committed to Git) |
 
@@ -93,6 +99,18 @@ Say "Hey Jarvis", then your request. Say "goodbye Jarvis" or press Ctrl+C to sto
 - `files` only works inside `ALLOWED_FOLDERS` (Documents, Desktop, Downloads by default) and the notes workspace. Paths are fully resolved first, so `..` and symlinks can't escape. Secret-looking files (`.env`, `.key`, `.pem`, `.kdbx`, SSH keys, anything named "password") are hidden from search and refused.
 - Text from files and the clipboard is scanned, secrets are redacted, and it reaches the model as untrusted data. Clipboard text is written through stdin, never pasted into a command.
 - The server listens on 127.0.0.1 only.
+
+## Asking before acting
+
+Some actions wait for sir's permission (`NEEDS_APPROVAL` in `config.py`): locking the screen, opening a website, writing to the clipboard and saving notes. The tool doesn't run. Jarvis asks, and only sir's next message decides: "yes" runs it, "no" cancels it, and anything else (or 2 minutes) drops it. That decision is made by code reading sir's words, never by the model, so a web page that tells him to "approve" something can't.
+
+## How good is he at picking tools?
+
+```powershell
+cd D:\jarvis-x; .\.venv\Scripts\Activate.ps1; python evals\tool_eval.py
+```
+
+This asks the real model 41 typical requests and checks which tool it picks first (nothing is actually run). It prints a score, per-tool results and the most common mistakes, and saves the full results in `data\evals\`. Run it again after changing tools or the prompt, to see whether things got better or worse.
 
 ## Tests
 
