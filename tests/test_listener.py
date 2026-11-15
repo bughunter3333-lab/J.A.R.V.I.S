@@ -105,7 +105,7 @@ def test_sse_stream_ends_by_itself():
     started = time.monotonic()
     chunks = list(lst.sse(0, max_seconds=0.5))
     assert time.monotonic() - started < 3
-    assert json.loads(chunks[0][len("data: "):])["type"] == "state"
+    assert json.loads(chunks[0].split("data: ", 1)[1])["type"] == "state"
 
 
 def test_endpoints(monkeypatch):
@@ -272,4 +272,30 @@ def test_name_alone_opens_the_conversation_silently():
     assert heard["text"] == "stop."  # the model gets the request, not his name
     assert len([e for e in lst.events_after(0, 0) if e["type"] == "heard"]) == 1
     assert lst.conversation
+    lst.stop()
+
+
+def test_a_new_page_does_not_replay_old_speech():
+    """Refreshing the HUD used to replay every 'heard' event, so he re-answered the old chat."""
+    lst, _ = make_listener(["Who made you?", "Goats."])
+    lst.start(wake_word=False)
+    wait_for(lst, "heard")
+    time.sleep(0.3)
+    chunks = "".join(lst.sse(0, max_seconds=0.3))
+    assert '"heard"' not in chunks
+    # a page that outlived a server restart (its last id is ahead of ours) also starts fresh
+    chunks = "".join(lst.sse(10_000, max_seconds=0.3))
+    assert '"heard"' not in chunks and '"state"' in chunks
+    lst.stop()
+
+
+def test_a_connected_page_still_gets_new_speech():
+    lst, _ = make_listener([])
+    lst.start(wake_word=False)
+    wait_for(lst, "waiting")
+    with lst._cond:
+        last = lst._next_id - 1
+    lst.emit("heard", text="what time is it")
+    chunks = "".join(lst.sse(last, max_seconds=0.3))
+    assert "what time is it" in chunks
     lst.stop()

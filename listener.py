@@ -183,8 +183,14 @@ class Listener:
         """Server-sent events for the HUD. Each stream ends after max_seconds and the browser
         reconnects by itself (sending Last-Event-ID), so a reload of uvicorn never hangs
         waiting for an open stream."""
-        if last_id == 0:
-            yield f"data: {json.dumps({'id': 0, 'type': 'state', 'state': self.state})}\n\n"
+        with self._cond:
+            newest = self._next_id - 1
+        if last_id == 0 or last_id > newest:
+            # A new page (or a page that outlived a server restart): start from now. Replaying
+            # old "heard" events made a refreshed HUD answer the whole previous conversation again.
+            last_id = newest
+            # "id:" lets the browser's automatic reconnect resume from here without gaps.
+            yield f"id: {newest}\ndata: {json.dumps({'id': 0, 'type': 'state', 'state': self.state, 'conversation': self.conversation})}\n\n"
         yield "retry: 500\n\n"
         ends = time.monotonic() + max_seconds
         while time.monotonic() < ends:
