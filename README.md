@@ -23,6 +23,7 @@ The language model runs on this PC through Ollama, so your conversations stay on
 | "Who was Alan Turing?", "Define serendipity" | `look_up` (Wikipedia, dictionary) |
 | "Find my assessment 3 file", "Read and summarise it" | `files` (only inside `ALLOWED_FOLDERS`; txt, md, csv, pdf, docx…) |
 | "What did I just copy?", "Copy that to my clipboard" | `clipboard` |
+| "How long ago were you built?", "What version are you?" | `about_me` (exact to the second, worked out in code; set `BUILT_AT` in `config.py` to pin the exact moment) |
 
 ## Run it
 
