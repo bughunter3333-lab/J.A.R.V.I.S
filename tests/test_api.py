@@ -74,6 +74,7 @@ def test_health_endpoint(client, monkeypatch):
     body = client.get("/health").json()
     assert body["status"] == "fail"
     assert any(c["name"] == "Ollama" and c["status"] == "fail" for c in body["checks"])
+    assert body["session"].startswith("hud-")  # every server start gives the HUD a fresh conversation
 
 
 def test_stats_endpoint(client):

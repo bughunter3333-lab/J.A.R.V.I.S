@@ -15,7 +15,8 @@ import config
 GOODBYES = ("goodbye jarvis", "good bye jarvis", "bye jarvis", "that will be all jarvis")
 FAREWELL = "Very good, sir. I shall be here if you need me."
 # Whisper sometimes invents these when it hears only silence or noise.
-PHANTOM_PHRASES = {"thanks for watching", "thank you for watching", "you"}
+PHANTOM_PHRASES = {"thanks for watching", "thank you for watching", "you", "so", "thank you",
+                   "thank you so much", "bye", "the end", "subtitles by the amaraorg community"}
 # Sounds that carry no request. A transcript made only of these and his name is dropped.
 FILLERS = {"um", "uh", "umm", "uhh", "er", "erm", "hmm", "hm", "mm", "mmm", "ah", "oh", "eh"}
 _WAKE = r"(?:(?:hey|hi|hello|ok|okay|yo)[\s,]+)?jarvis"

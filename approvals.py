@@ -82,6 +82,13 @@ def pending(session: str, now: datetime | None = None) -> dict | None:
     return {"id": rid, "tool": tool, "args": json.loads(args), "summary": summary}
 
 
+def expire_all() -> None:
+    """Called when the server starts: nothing parked before a restart may still run."""
+    init_db()
+    with closing(memory._connect()) as db, db:
+        db.execute("UPDATE approvals SET status='expired' WHERE status='pending'")
+
+
 def settle(rid: int, status: str) -> None:
     with closing(memory._connect()) as db, db:
         db.execute("UPDATE approvals SET status=? WHERE id=?", (status, rid))

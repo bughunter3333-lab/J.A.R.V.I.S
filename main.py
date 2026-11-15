@@ -2,6 +2,7 @@
 import io
 import json
 import os
+import time
 import threading
 from contextlib import asynccontextmanager
 
@@ -35,6 +36,7 @@ def _warm_up_voice() -> None:
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     memory.init_db()
+    approvals.expire_all()  # an approval box from before a restart must not come back
     reminders.init_db()
     reminders.start_checker()
     if os.environ.get("JARVIS_NO_VOICE_WARMUP") != "1":
@@ -72,10 +74,15 @@ def status():
     return {"status": "online", "message": "Good evening. JARVIS-X is running."}
 
 
+# Each server start is a fresh conversation for the HUD. Short-term chat history stays in
+# the database but isn't sent back to the model; long-term facts (remember_fact) carry over.
+HUD_SESSION = "hud-" + time.strftime("%Y%m%d-%H%M%S")
+
+
 @app.get("/health")
 def health():
     """Quick doctor checks (Ollama, model, model folder, data folder, voice model)."""
-    return doctor.summary(doctor.run_checks(quick=True))
+    return {**doctor.summary(doctor.run_checks(quick=True)), "session": HUD_SESSION}
 
 
 @app.get("/hud", include_in_schema=False)
