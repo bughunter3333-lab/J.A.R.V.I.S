@@ -59,7 +59,8 @@ ROBOTIC = ("as an ai", "as a language model", "just a language model", "great qu
            "certainly! ", "absolutely! ")
 WRONG_MAKERS = ("microsoft", "openai", "alibaba", "anthropic", "google", "meta ", "stark industries", "marvel")
 PRESENCE_FILLER = ("i'm here", "i am here", "yes, sir?", "yes sir?", "at your service",
-                   "how can i help", "how may i help", "what can i do for you", "you called")
+                   "how can i help", "how may i help", "what can i do for you", "you called",
+                   "something i can assist", "anything i can assist", "how can i assist", "how may i assist")
 FALSE_PROMISE = ("let me look", "let me check", "let me find", "i'll look", "i will look",
                  "i'll check", "i will check", "i'll find out", "one moment", "give me a moment")
 EMOJI = re.compile("[\U0001F300-\U0001FAFF☀-➿]")
@@ -84,6 +85,22 @@ def parrots_example(reply: str, min_words: int = 6) -> bool:
     return False
 
 
+def copies_example_opener(reply: str) -> bool:
+    """True if the reply opens with the exact first sentence of a voice example whose prompt
+    was a real statement (3+ words). 'So it is, sir.' then turns up as a stock opener for
+    'Stop', 'Goats' and the weather. Plain acknowledgements ('Very good, sir.' for
+    'Never mind.') are short-prompt examples and may be reused."""
+    first = sentences(reply)[:1]
+    if not first:
+        return False
+    opener = _words(first[0])
+    for said, example in config.VOICE_EXAMPLE_PAIRS:
+        ex_first = sentences(example)[:1]
+        if len(_words(said)) >= 3 and ex_first and opener == _words(ex_first[0]):
+            return True
+    return False
+
+
 def check(reply: str, kind: str) -> dict[str, bool]:
     """Every rule, True = passed."""
     low = reply.lower().replace("\u2019", "'")
@@ -99,7 +116,7 @@ def check(reply: str, kind: str) -> dict[str, bool]:
         "not_robotic": not any(p in low for p in ROBOTIC),
         "no_presence_filler": not any(p in low for p in PRESENCE_FILLER),
         "no_false_promise": not any(p in low for p in FALSE_PROMISE),
-        "not_parroting": not parrots_example(reply),
+        "not_parroting": not parrots_example(reply) and not copies_example_opener(reply),
         "identity_correct": kind != "identity" or (not any(m in low for m in WRONG_MAKERS)
                                                      or "not" in low),
     }

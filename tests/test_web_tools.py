@@ -174,6 +174,23 @@ def test_unknown_place(monkeypatch):
     assert tools.run_tool("get_weather", {"place": "Atlantis"}).startswith("Refused")
 
 
+
+def test_weather_rate_limit_is_reported_not_crashed(monkeypatch):
+    def handler(req):
+        if "geocoding" in req.url.host:
+            return httpx.Response(200, json={"results": [
+                {"name": "Sydney", "country": "Australia", "latitude": -33.87, "longitude": 151.21}]})
+        return httpx.Response(429, json={"error": True, "reason": "Daily API request limit exceeded."})
+    fake_http(monkeypatch, handler)
+    result = tools.run_tool("get_weather", {"place": ""})
+    assert result.startswith("Refused") and "limit exceeded" in result
+
+
+def test_geocoding_error_is_not_called_an_unknown_place(monkeypatch):
+    fake_http(monkeypatch, lambda req: httpx.Response(429, json={"error": True, "reason": "Too many requests"}))
+    result = tools.run_tool("get_weather", {"place": "Sydney"})
+    assert "Too many requests" in result and "couldn't find" not in result
+
 # ---------------------------------------------------------------- system
 
 def test_system_status():

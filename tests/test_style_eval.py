@@ -59,3 +59,11 @@ def test_new_rules():
     copied = config.VOICE_EXAMPLE_PAIRS[0][1]
     assert not style_eval.check(copied, "chat")["not_parroting"]
     assert style_eval.check("Stopped, sir.", "short")["not_parroting"]
+
+
+def test_copied_example_opener_is_parroting(monkeypatch):
+    from evals import style_eval
+    monkeypatch.setattr(style_eval.config, "VOICE_EXAMPLE_PAIRS",
+                        (("It's raining again.", "So it is, sir. Ideal for staying in."), ("Never mind.", "Very good, sir.")))
+    assert not style_eval.check("So it is, sir. A curious subject.", "short")["not_parroting"]
+    assert style_eval.check("Very good, sir.", "short")["not_parroting"]  # plain acknowledgement is fine

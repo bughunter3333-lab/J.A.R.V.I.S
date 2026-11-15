@@ -189,6 +189,8 @@ def weather(place: str = "") -> str:
     with httpx.Client(timeout=TIMEOUT, headers={"User-Agent": USER_AGENT}) as client:
         geo = client.get("https://geocoding-api.open-meteo.com/v1/search",
                          params={"name": place, "count": 1, "language": "en"}).json()
+        if geo.get("error"):
+            raise Blocked(f"The weather service refused the request ({str(geo.get('reason', ''))[:120]}).")
         if not geo.get("results"):
             raise Blocked(f"I couldn't find a place called '{place}'.")
         loc = geo["results"][0]
@@ -198,6 +200,10 @@ def weather(place: str = "") -> str:
             "daily": "temperature_2m_max,temperature_2m_min,precipitation_probability_max,weather_code",
             "forecast_days": 2,
         }).json()
+    if data.get("error") or "current" not in data or "daily" not in data:
+        # Open-Meteo answers a rate limit or bad request with {"error": true, "reason": ...}
+        reason = str(data.get("reason") or "no forecast in the reply")[:120]
+        raise Blocked(f"The weather service didn't give a forecast ({reason}).")
     cur, day = data["current"], data["daily"]
     name = ", ".join(x for x in (loc.get("name"), loc.get("admin1"), loc.get("country")) if x)
     return (

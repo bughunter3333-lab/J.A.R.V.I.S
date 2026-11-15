@@ -25,6 +25,52 @@ STOCK_OFFER = re.compile(
     r"[^.?!]{0,60}\b(?:anything else|further|other|more|help|assist(?:ance)?)\b[^.?!]*\?\s*$",
     re.I,
 )
+# "I shall adjust the volume, sir." with no tool call means nothing happened. Code
+# catches the promise and makes the model actually call the tool (once).
+PROMISES_ACTION = re.compile(
+    r"\b(?:I(?:'ll| will| shall| am going to| am)|let me|allow me)\s+(?:now\s+|just\s+)?"
+    r"(?:adjust|adjusting|turn|turning|lower|lowering|raise|raising|set|setting|open|opening|lock|locking|"
+    r"check|checking|look|looking|find|finding|search|searching|copy|copying|play|pause|mute|muting|skip|"
+    r"remind|convert|fetch|fetching|get|getting|pull|pulling)\b",
+    re.I,
+)
+ACTION_NUDGE = (
+    "You told sir you would do that, but you did not call any tool, so nothing happened. "
+    "Call the right tool now, then tell sir the result in one short sentence."
+)
+# "Would you like me to suggest a reliable site?" after a real answer: an offer, dropped.
+TRAILING_OFFER = re.compile(
+    r"\s*(?:(?:Would you like me to|Shall I|Do you want me to|Should I)\s+"
+    r"(?:suggest|recommend|provide|offer|find|look|search|help|try|point)[^.?!]*\?"
+    r"|(?:Please |Do )?(?:let me know|feel free to)[^.?!]*[.?!]?)\s*$", re.I)
+# qwen3:8b copies a voice example word for word when unsure ("Goats." -> the firewall
+# line). Opening sentences of examples for real statements (3+ words said) are checked
+# before they are spoken; a copy gets one retry. Short acknowledgements may be reused.
+def _words(text: str) -> tuple:
+    return tuple(re.findall(r"[a-z']+", text.lower().replace("\u2019", "'")))
+
+
+EXAMPLE_LINES = {
+    _words(line)
+    for said, example in config.VOICE_EXAMPLE_PAIRS if len(_words(said)) >= 3
+    for line in re.split(r"(?<=[.!?])\s+", example) if len(_words(line)) >= 4
+}
+PARROT_NUDGE = (
+    "(Note from the system, not sir: do not reuse any line from your examples. Reply to sir's "
+    "message \"{message}\" in your own words, in one or two short sentences.)"
+)
+
+
+def copies_example(sentence: str) -> bool:
+    return _words(sentence) in EXAMPLE_LINES
+
+
+# A reply that is nothing but presence filler ("I am here, sir.", "Yes, sir?").
+PRESENCE_ONLY = re.compile(
+    r"^\s*(?:I(?:'m| am) (?:here|listening)|Yes|At your service|How (?:can|may) I (?:help|assist)(?: you)?"
+    r"|(?:Is there )?(?:something|anything) (?:I can|you'd like me to) (?:help|assist)(?: you)?(?: with)?)"
+    r"(?:,? sir)?[.?!]?\s*$", re.I)
+ACKNOWLEDGE = "Very good, sir."
 MEMORY_FAILED = "I am afraid that did not save to memory, sir. Would you tell me once more?"
 NUDGE = (
     "Sir asked you to remember something, but you did not call the remember_fact tool, "
@@ -34,7 +80,7 @@ NUDGE = (
 
 def strip_stock_offer(reply: str) -> str:
     """Drop a trailing 'Is there anything else I can assist you with?' (unless that's all he said)."""
-    trimmed = STOCK_OFFER.sub("", reply).strip()
+    trimmed = TRAILING_OFFER.sub("", STOCK_OFFER.sub("", reply)).strip()
     return trimmed or reply
 
 
@@ -93,11 +139,14 @@ class _Sentences:
     """Collects streamed text and releases it a cleaned sentence at a time."""
 
     def __init__(self):
-        self.buffer, self.sent = "", []
+        self.buffer, self.sent, self.dropped_filler = "", [], False
 
     def _clean(self, sentence: str) -> str | None:
         sentence = security.redact(sentence.strip())
-        if self.sent and not STOCK_OFFER.sub("", sentence).strip():
+        if PRESENCE_ONLY.match(sentence):
+            self.dropped_filler = True
+            return None  # "I am here, sir." says nothing; never speak it
+        if self.sent and not TRAILING_OFFER.sub("", STOCK_OFFER.sub("", sentence)).strip():
             return None  # "Is there anything else...?" after a real answer: drop it
         return sentence or None
 
@@ -167,10 +216,10 @@ def _respond(message: str, session: str, trace: dict):
     # false-memory check below has run, instead of speaking it as it streams.
     hold_back = bool(ASKED_TO_REMEMBER.search(message))
     out = _Sentences()
-    reply, called, nudged = "", set(), False
+    reply, called, nudged, pushed_to_act, parrot_retried = "", set(), False, False, False
     for _ in range(config.MAX_TOOL_ROUNDS):
         trace["rounds"] += 1
-        text, tool_calls, tool_message = "", [], None
+        text, tool_calls, tool_message, parroted = "", [], None, False
         round_out = _Sentences() if hold_back else out
         for chunk in chat(model=config.MODEL, messages=messages, tools=list(tools.TOOLS.values()),
                           think=False, stream=True):
@@ -181,7 +230,21 @@ def _respond(message: str, session: str, trace: dict):
                 tool_message = chunk.message
             if piece and not tool_calls and not hold_back:
                 for sentence in round_out.add(piece):
+                    if not parrot_retried and len(round_out.sent) == 1 and copies_example(sentence):
+                        parroted = True  # caught before it was spoken
+                        break
                     yield {"type": "sentence", "text": sentence}
+            if parroted:
+                break
+        if (not parroted and not parrot_retried and not tool_calls and not hold_back
+                and not round_out.sent and copies_example(round_out.buffer)):
+            parroted = True  # a one-sentence copy, still unspoken in the buffer
+        if parroted:
+            parrot_retried = True
+            round_out.sent.clear()
+            round_out.buffer = ""
+            messages.append({"role": "user", "content": PARROT_NUDGE.format(message=message)})
+            continue
         reply = text.strip()
         if tool_calls:
             tool_message.content = text
@@ -205,6 +268,14 @@ def _respond(message: str, session: str, trace: dict):
             messages.append({"role": "assistant", "content": reply})
             messages.append({"role": "user", "content": NUDGE})
             continue
+        if not called and not pushed_to_act and not false_claim and PROMISES_ACTION.search(reply):
+            pushed_to_act = True
+            if not hold_back:  # finish the spoken promise so the next round starts a new sentence
+                for sentence in out.add(" "):
+                    yield {"type": "sentence", "text": sentence}
+            messages.append({"role": "assistant", "content": reply})
+            messages.append({"role": "user", "content": ACTION_NUDGE})
+            continue
         if false_claim:
             reply = MEMORY_FAILED  # still no tool call: be honest instead of pretending
         break
@@ -219,7 +290,12 @@ def _respond(message: str, session: str, trace: dict):
     for sentence in out.flush():
         yield {"type": "sentence", "text": sentence}
 
-    final = out.reply or security.redact(reply)
+    final = out.reply or ("" if out.dropped_filler else security.redact(reply))
+    if out.dropped_filler and not out.sent or PRESENCE_ONLY.match(final):
+        # The whole reply was "I am here, sir.": for a short message that means "noted".
+        final = ACKNOWLEDGE
+        out.sent.append(final)
+        yield {"type": "sentence", "text": final}
     if not final.strip():
         # The model sometimes returns nothing (often for a mis-heard fragment). Never
         # leave sir with silence and a "..." on screen.

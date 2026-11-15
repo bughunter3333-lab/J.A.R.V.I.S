@@ -130,3 +130,75 @@ def test_question_about_memory_is_not_forced_to_save(monkeypatch):
     seen = script(monkeypatch, say("You prefer tea, sir."))
     assert brain.respond("do you remember what I like to drink?", "s") == "You prefer tea, sir."
     assert len(seen) == 1
+
+
+def test_promised_action_without_a_tool_call_is_retried(monkeypatch):
+    seen = script(monkeypatch, say("I shall adjust the volume, sir."),
+                  call("get_current_time"), say("Turned down, sir."))
+    reply = brain.respond("It's way too loud", "s")
+    assert seen[1][-1]["content"] == brain.ACTION_NUDGE
+    assert reply == "I shall adjust the volume, sir. Turned down, sir."  # a space between rounds
+
+
+def test_promise_after_a_tool_call_does_not_repeat_the_action(monkeypatch):
+    seen = script(monkeypatch, call("pc_control", action="volume_down"),
+                  say("Apologies, sir. I shall adjust the volume immediately."))
+    brain.respond("It's way too loud", "s")
+    assert len(seen) == 2  # no second volume_down
+
+
+@pytest.mark.parametrize("filler", ["I am here, sir.", "I'm here, sir", "Yes, sir?", "At your service, sir.",
+                                    "Is there something I can assist you with?",
+                                    "I am here, sir. Is there something I can assist you with?"])
+def test_presence_filler_alone_becomes_an_acknowledgement(monkeypatch, filler):
+    script(monkeypatch, say(filler))
+    assert brain.respond("Stop", "s") == brain.ACKNOWLEDGE
+
+
+def test_promise_is_only_retried_once(monkeypatch):
+    seen = script(monkeypatch, say("Let me check that, sir."), say("Let me check that, sir."))
+    brain.respond("hmm", "s")
+    assert len(seen) == 2
+
+
+@pytest.mark.parametrize("reply,expected", [
+    ("I cannot reach the internet, sir. Would you like me to suggest a reliable site?",
+     "I cannot reach the internet, sir."),
+    ("Would you like me to suggest something?", "Would you like me to suggest something?"),
+    ("Shall I set a reminder for it?", "Shall I set a reminder for it?"),
+    ("The volume has been reduced, sir. Let me know if it requires further adjustment.",
+     "The volume has been reduced, sir."),
+    ("Done, sir. Feel free to ask again.", "Done, sir."),
+])
+def test_trailing_offers_are_dropped(reply, expected):
+    assert brain.strip_stock_offer(reply) == expected
+
+
+def test_copied_example_line_is_retried_before_it_is_spoken(monkeypatch):
+    example = next(b for a, b in config.VOICE_EXAMPLE_PAIRS if brain.copies_example(b.split(". ")[0] + "."))
+    seen = script(monkeypatch, say(example), say("Goats, sir. Sturdy animals."))
+    events = list(brain.respond_events("Goats.", "s"))
+    spoken = [e["text"] for e in events if e["type"] == "sentence"]
+    assert spoken == ["Goats, sir.", "Sturdy animals."]
+    assert seen[1][-1]["content"] == brain.PARROT_NUDGE.format(message="Goats.")
+    assert all(m.get("content") != example for m in seen[1])  # the copy is not kept in history
+
+
+def test_one_sentence_copy_is_caught_too(monkeypatch):
+    seen = script(monkeypatch, say("A gatekeeper for your network, sir."), say("Goats, sir."))
+    monkeypatch.setattr(brain, "EXAMPLE_LINES", {brain._words("A gatekeeper for your network, sir.")})
+    assert brain.respond("Goats.", "s") == "Goats, sir."
+    assert len(seen) == 2
+
+
+def test_copied_example_twice_is_let_through(monkeypatch):
+    example = next(b for a, b in config.VOICE_EXAMPLE_PAIRS if brain.copies_example(b.split(". ")[0] + "."))
+    seen = script(monkeypatch, say(example), say(example))
+    assert brain.respond("Goats.", "s")
+    assert len(seen) == 2
+
+
+def test_short_acknowledgement_examples_may_be_reused(monkeypatch):
+    seen = script(monkeypatch, say("Very good, sir."))
+    assert brain.respond("Okay", "s") == "Very good, sir."
+    assert len(seen) == 1
