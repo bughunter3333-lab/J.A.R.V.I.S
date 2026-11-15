@@ -22,7 +22,11 @@ TTS_SPEED = 1.0
 # faster-whisper model, on CPU to leave the GPU for the LLM.
 # "base.en" is a 145 MB download; "small.en" (480 MB) is more accurate if you want to upgrade.
 STT_MODEL = "base.en"
-WAKE_WORD = "hey_jarvis"
+# Wake word. "jarvis" uses Porcupine 1.9.5's built-in keyword (offline, no account or key);
+# "hey jarvis" uses openWakeWord's model. Sensitivity 0-1: higher catches more, misfires more.
+WAKE_PHRASE = "jarvis"
+WAKE_SENSITIVITY = 0.6
+WAKE_WORD = "hey_jarvis"  # openWakeWord model name, used when WAKE_PHRASE = "hey jarvis"
 
 # Internet tools (web_search, read_webpage, get_weather). Set to False to keep
 # Jarvis fully offline; those tools then refuse instead of connecting.
@@ -30,7 +34,7 @@ ALLOW_INTERNET = True
 HOME_CITY = "Sydney"  # used when you ask for the weather without naming a place
 SEARCH_REGION = "au-en"  # DuckDuckGo region for search results
 
-# Conversation mode (HUD local microphone): after "Hey Jarvis", keep listening without
+# Conversation mode (HUD local microphone): after the wake word, keep listening without
 # the wake word until sir says one of these, or nobody speaks for CONVERSATION_IDLE_TIMEOUT
 # seconds (0 = never time out). The timeout stops a TV or someone else in the room from
 # giving commands indefinitely.

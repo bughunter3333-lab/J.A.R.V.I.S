@@ -1,13 +1,13 @@
 """Local voice for the HUD: the server listens to the PC's microphone itself.
 
-The HUD switches it on with POST /listen/start. The same RealtimeSTT + "hey jarvis"
+The HUD switches it on with POST /listen/start. The same RealtimeSTT + wake word ("Jarvis")
 wake word as talk.py runs in a background thread inside the server, so nothing is
 sent to Google and it works in any browser (Firefox included). What it hears is
 pushed to the HUD over GET /listen/events (server-sent events); the HUD then sends
 it through /chat/stream and speaks the reply. While Jarvis is speaking the HUD
 mutes the microphone (POST /listen/mute) so he doesn't hear and answer himself.
 
-Conversation mode: "Hey Jarvis" starts a conversation and the wake word is switched
+Conversation mode: the wake word starts a conversation and the wake word is switched
 off, so every follow-up goes straight to him. "That's all, thank you" (see
 config.CONVERSATION_END_PHRASES) or CONVERSATION_IDLE_TIMEOUT seconds of silence ends
 it and the wake word is needed again.
@@ -44,7 +44,7 @@ class Listener:
         self._next_id = 1
         self.state = "off"  # off, loading, waiting, listening, error
         self.wake_word = True
-        self.conversation = False  # True between "Hey Jarvis" and "that's all"
+        self.conversation = False  # True between the wake word and "that's all"
         self._muted = False
         self._last_activity = time.monotonic()
         self._watchdog = None
@@ -105,7 +105,7 @@ class Listener:
     # ---------------------------------------------------------------- conversation mode
 
     def _set_wake_word(self, needed: bool) -> None:
-        """Switch RealtimeSTT between "wait for Hey Jarvis" and "take whatever is said".
+        """Switch RealtimeSTT between "wait for the wake word" and "take whatever is said".
         The recorder checks this flag on every audio chunk, so it applies immediately."""
         if self._recorder is not None and hasattr(self._recorder, "use_wake_words"):
             self._recorder.use_wake_words = needed
@@ -152,7 +152,7 @@ class Listener:
         self._recorder = recorder
         self._watchdog = threading.Thread(target=self._watch_idle, daemon=True, name="listener-idle")
         self._watchdog.start()
-        self.emit("waiting", wake_word=self.wake_word)
+        self.emit("waiting", wake_word=self.wake_word, wake_phrase=config.WAKE_PHRASE)
         while self._running:
             try:
                 heard = recorder.text()
@@ -168,9 +168,10 @@ class Listener:
                 if self.conversation and is_conversation_end(heard):
                     self.end_conversation("phrase")
                 else:
-                    self._begin_conversation()  # "Hey Jarvis" + request starts one
+                    self._begin_conversation()  # wake word + request starts one
                     self.emit("heard", text=heard.strip())
-            self.emit("waiting", wake_word=self.wake_word and not self.conversation)
+            self.emit("waiting", wake_word=self.wake_word and not self.conversation,
+                      wake_phrase=config.WAKE_PHRASE)
             time.sleep(0.05)
 
     def sse(self, last_id: int = 0, max_seconds: float = 25.0):

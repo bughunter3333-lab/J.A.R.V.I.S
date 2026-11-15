@@ -214,3 +214,29 @@ def test_end_phrases(said):
                                   "is that all the reminders?", "say goodbye to my friend", "stop the music"])
 def test_not_end_phrases(said):
     assert not listener_module.is_conversation_end(said)
+
+
+# ---------------------------------------------------------------- wake word choice
+
+def test_jarvis_uses_porcupine_builtin_keyword(monkeypatch):
+    import talk
+    monkeypatch.setattr(config, "WAKE_PHRASE", "jarvis")
+    opts = talk.wake_backend_options()
+    assert opts["wakeword_backend"] == "pvporcupine" and opts["wake_words"] == "jarvis"
+    assert opts["wake_words_sensitivity"] == config.WAKE_SENSITIVITY
+    assert "openwakeword_model_paths" not in opts
+
+
+def test_hey_jarvis_still_available_with_openwakeword(monkeypatch):
+    import talk
+    monkeypatch.setattr(config, "WAKE_PHRASE", "hey jarvis")
+    monkeypatch.setattr(talk, "wake_word_model_path", lambda: "/models/hey_jarvis.onnx")
+    opts = talk.wake_backend_options()
+    assert opts["wakeword_backend"] == "oww" and opts["openwakeword_model_paths"] == "/models/hey_jarvis.onnx"
+
+
+def test_waiting_event_tells_the_hud_the_wake_phrase():
+    lst, _ = make_listener([])
+    lst.start()
+    assert wait_for(lst, "waiting")["wake_phrase"] == config.WAKE_PHRASE
+    lst.stop()

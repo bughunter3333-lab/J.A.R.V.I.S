@@ -146,7 +146,7 @@ class MuteRequest(BaseModel):
 
 @app.post("/listen/start")
 def listen_start(request: ListenRequest):
-    """Start local listening on this PC's microphone (RealtimeSTT + "hey jarvis")."""
+    """Start local listening on this PC's microphone (RealtimeSTT + the wake word)."""
     from listener import listener
     return {"state": listener.start(request.wake_word)}
 
