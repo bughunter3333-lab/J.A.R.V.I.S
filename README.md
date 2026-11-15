@@ -1,6 +1,8 @@
-# JARVIS-X
+# J.A.R.V.I.S
 
-A local, private voice assistant. The language model runs on this PC through Ollama, so nothing leaves the machine.
+JARVIS-X is an AI-powered personal operating system inspired by Tony Stark's J.A.R.V.I.S. It combines conversational AI, voice control, memory, autonomous agents, and workflow automation to help users code, manage projects, execute tasks, and interact with applications through natural language.
+
+Phase 1 runs fully locally: the language model runs on this PC through Ollama, so nothing leaves the machine.
 
 ## Run it
 
