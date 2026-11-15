@@ -14,6 +14,7 @@ Security rules, enforced here in code:
 """
 import ipaddress
 import socket
+import time
 from html.parser import HTMLParser
 from urllib.parse import urljoin, urlparse
 
@@ -208,3 +209,76 @@ def weather(place: str = "") -> str:
         f"{WEATHER_CODES.get(day['weather_code'][1], 'unknown conditions')}, "
         f"{day['precipitation_probability_max'][1]}% chance of rain. (Source: Open-Meteo)"
     )
+
+
+# ---------------------------------------------------------------- knowledge
+
+def _get_json(client: httpx.Client, url: str, **params) -> dict | list:
+    res = client.get(url, params=params or None)
+    if res.status_code == 429:
+        raise Blocked("That service is rate-limiting us. Try again in a minute.")
+    if res.status_code == 404:
+        return {}
+    try:
+        return res.json()
+    except ValueError:
+        raise Blocked("That service sent back something I couldn't read.")
+
+
+def wikipedia(topic: str) -> str:
+    _require_internet()
+    topic = topic.strip()[:120]
+    _check_outbound(topic, "lookup")
+    with httpx.Client(timeout=TIMEOUT, headers={"User-Agent": USER_AGENT}) as client:
+        found = _get_json(client, "https://en.wikipedia.org/w/api.php", action="opensearch",
+                          search=topic, limit=1, namespace=0, format="json")
+        if not found or len(found) < 2 or not found[1]:
+            raise Blocked(f"Wikipedia has no article matching '{topic}'.")
+        title = found[1][0]
+        page = _get_json(client, "https://en.wikipedia.org/api/rest_v1/page/summary/" + title.replace(" ", "_"))
+    summary = (page or {}).get("extract") or ""
+    if not summary:
+        raise Blocked(f"Couldn't read the Wikipedia article '{title}'.")
+    link = (page.get("content_urls") or {}).get("desktop", {}).get("page", "")
+    return security.as_untrusted("Wikipedia", f"{title}: {summary[:1500]} [{link}]")
+
+
+def define(word: str) -> str:
+    _require_internet()
+    word = word.strip().lower()[:50]
+    if not word.replace("-", "").replace(" ", "").isalpha():
+        raise Blocked("Give me a single word to define.")
+    with httpx.Client(timeout=TIMEOUT, headers={"User-Agent": USER_AGENT}) as client:
+        data = _get_json(client, "https://api.dictionaryapi.dev/api/v2/entries/en/" + word)
+    if not isinstance(data, list) or not data:
+        raise Blocked(f"I couldn't find '{word}' in the dictionary.")
+    lines = []
+    for meaning in data[0].get("meanings", [])[:3]:
+        d = meaning.get("definitions", [{}])[0]
+        line = f"({meaning.get('partOfSpeech', '')}) {d.get('definition', '')}"
+        if d.get("example"):
+            line += f' e.g. "{d["example"]}"'
+        lines.append(line)
+    phonetic = data[0].get("phonetic", "")
+    return f"{word} {phonetic}: " + " ".join(lines)
+
+
+_rates_cache: dict[str, tuple[float, dict]] = {}
+
+
+def exchange_rate(base: str, target: str) -> tuple[float, str]:
+    """Rate from base to target currency (open.er-api.com, free, no key, updated daily)."""
+    _require_internet()
+    base, target = base.upper(), target.upper()
+    cached = _rates_cache.get(base)
+    if not cached or time.monotonic() - cached[0] > 3600:
+        with httpx.Client(timeout=TIMEOUT, headers={"User-Agent": USER_AGENT}) as client:
+            data = _get_json(client, f"https://open.er-api.com/v6/latest/{base}")
+        if not isinstance(data, dict) or data.get("result") != "success":
+            raise Blocked(f"I couldn't get exchange rates for {base}.")
+        cached = (time.monotonic(), data)
+        _rates_cache[base] = cached
+    data = cached[1]
+    if target not in data["rates"]:
+        raise Blocked(f"I don't have a rate for {target}.")
+    return data["rates"][target], data.get("time_last_update_utc", "")[:16]

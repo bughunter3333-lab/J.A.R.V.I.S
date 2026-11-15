@@ -506,6 +506,20 @@ async function handleUser(text){
   }
 }
 
+// ---------- reminders: the server says when one goes off, Jarvis says it aloud ----------
+async function checkReminders(){
+  try{
+    const due = await (await fetch(api("/reminders/due"))).json();
+    for (const r of due){
+      const line = `Pardon the interruption, sir. A reminder: ${r.message}`;
+      addLog("j", line); caption(line);
+      if (state !== "speaking") replyFinished = true;
+      enqueueSpeech(line);
+    }
+  }catch(_){ /* server down: boot() already shows that */ }
+}
+setInterval(checkReminders, 5000);
+
 // ---------- controls ----------
 els.text.addEventListener("keydown", e => {
   if (e.key==="Enter" && els.text.value.trim()){

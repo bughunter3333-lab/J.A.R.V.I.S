@@ -17,6 +17,8 @@ from pathlib import Path
 
 import config
 import memory
+import pc
+import reminders
 import security
 import web
 
@@ -229,11 +231,197 @@ def system_status() -> str:
     return ", ".join(parts) + "."
 
 
+# ---------------------------------------------------------------- reminders
+
+def reminder(action: str, message: str = "", when: str = "", number: int = 0) -> str:
+    """Set, list or cancel reminders and timers. Sir gets a Windows notification and you say it aloud.
+
+    Args:
+        action: "set" to create one, "list" to see waiting ones, or "cancel" to remove one.
+        message: For "set": what to remind sir about, e.g. "submit the forensics report".
+        when: For "set": when, in sir's words, e.g. "in 10 minutes", "at 3pm", "tomorrow at 9am", "friday 2pm".
+        number: For "cancel": the reminder number shown by "list".
+    """
+    action = action.strip().lower()
+    if action in ("set", "add", "create", "timer"):
+        if not message.strip():
+            message = "Timer finished."
+        try:
+            rid, due = reminders.add(security.clean_for_storage("reminder", message), when)
+        except reminders.BadTime as exc:
+            raise ToolRefused(str(exc))
+        return f"Reminder {rid} set for {reminders.describe(due)}: {message.strip()}"
+    if action in ("list", "show"):
+        waiting = reminders.pending()
+        if not waiting:
+            return "No reminders waiting."
+        from datetime import datetime as _dt
+        return "\n".join(f"{r['id']}. {reminders.describe(_dt.fromisoformat(r['due']))}: {r['message']}"
+                         for r in waiting)
+    if action in ("cancel", "delete", "remove"):
+        if not number:
+            raise ToolRefused("Which one? Give the reminder number from the list.")
+        if reminders.cancel(int(number)):
+            return f"Reminder {int(number)} cancelled."
+        raise ToolRefused(f"There's no waiting reminder number {int(number)}.")
+    raise ToolRefused('The action must be "set", "list" or "cancel".')
+
+
+# ---------------------------------------------------------------- PC control
+
+def pc_control(action: str, url: str = "") -> str:
+    """Control the computer: volume, music playback, lock the screen, or open a website in the browser.
+
+    Args:
+        action: One of: volume_up, volume_down, mute, play_pause, next_track, previous_track, lock_screen, open_website.
+        url: Only for open_website: the website address, e.g. "youtube.com".
+    """
+    try:
+        return pc.control(action, url)
+    except pc.NotAllowed as exc:
+        raise ToolRefused(str(exc))
+
+
+# ---------------------------------------------------------------- conversions
+
+# Everything is converted through one base unit per kind.
+_UNIT_TABLE = {
+    "length": {"mm": 0.001, "cm": 0.01, "m": 1, "km": 1000, "in": 0.0254, "inch": 0.0254, "ft": 0.3048,
+               "foot": 0.3048, "feet": 0.3048, "yd": 0.9144, "yard": 0.9144, "mi": 1609.344, "mile": 1609.344},
+    "mass": {"mg": 1e-6, "g": 0.001, "kg": 1, "t": 1000, "tonne": 1000, "oz": 0.0283495, "ounce": 0.0283495,
+             "lb": 0.453592, "lbs": 0.453592, "pound": 0.453592, "stone": 6.35029},
+    "volume": {"ml": 0.001, "l": 1, "litre": 1, "liter": 1, "cup": 0.25, "tsp": 0.00492892, "tbsp": 0.0147868,
+               "floz": 0.0295735, "gal": 3.78541, "gallon": 3.78541, "pint": 0.473176},
+    "speed": {"kmh": 1, "km/h": 1, "kph": 1, "mph": 1.609344, "m/s": 3.6, "mps": 3.6, "knot": 1.852, "knots": 1.852},
+    "data": {"b": 1, "byte": 1, "kb": 1e3, "mb": 1e6, "gb": 1e9, "tb": 1e12, "kib": 1024, "mib": 1024**2,
+             "gib": 1024**3, "tib": 1024**4},
+    "time": {"s": 1, "sec": 1, "second": 1, "min": 60, "minute": 60, "h": 3600, "hr": 3600, "hour": 3600,
+             "day": 86400, "week": 604800},
+}
+_TEMPS = {"c": "c", "celsius": "c", "°c": "c", "f": "f", "fahrenheit": "f", "°f": "f", "k": "k", "kelvin": "k"}
+
+
+_ALIASES = {
+    "kilometre": "km", "kilometer": "km", "centimetre": "cm", "centimeter": "cm", "millimetre": "mm",
+    "millimeter": "mm", "metre": "m", "meter": "m", "inche": "in", "kilogram": "kg", "kilo": "kg",
+    "gram": "g", "milligram": "mg", "millilitre": "ml", "milliliter": "ml", "teaspoon": "tsp",
+    "tablespoon": "tbsp", "byte": "b", "kilobyte": "kb", "megabyte": "mb", "gigabyte": "gb", "terabyte": "tb",
+    "kilometres per hour": "km/h", "kilometers per hour": "km/h", "miles per hour": "mph", "hr": "h",
+}
+
+
+def _unit_key(unit: str) -> str:
+    """'Kilometres' -> 'km', 'lbs' -> 'lbs', 'Miles' -> 'mile', 'GB' -> 'gb'."""
+    u = " ".join(unit.strip().lower().split())
+    if u in _ALIASES:
+        return _ALIASES[u]
+    u = u.replace(" ", "")
+    known = {k for t in _UNIT_TABLE.values() for k in t} | set(_TEMPS)
+    if u in known:
+        return u
+    singular = u[:-1] if u.endswith("s") else u
+    singular = _ALIASES.get(singular, singular)
+    return singular if singular in known else u
+
+
+def _convert_temp(value: float, a: str, b: str) -> float:
+    c = value if a == "c" else (value - 32) * 5 / 9 if a == "f" else value - 273.15
+    return c if b == "c" else c * 9 / 5 + 32 if b == "f" else c + 273.15
+
+
+def convert(amount: float, from_unit: str, to_unit: str) -> str:
+    """Convert money between currencies (live daily rates) or units like km/miles, kg/lb, °C/°F, GB/MB.
+
+    Args:
+        amount: The number to convert.
+        from_unit: Currency code (AUD, BDT, USD, EUR...) or unit (km, mile, kg, lb, C, F, litre, GB...).
+        to_unit: The currency code or unit to convert into.
+    """
+    try:
+        amount = float(amount)
+    except (TypeError, ValueError):
+        raise ToolRefused("The amount must be a number.")
+    a, b = from_unit.strip(), to_unit.strip()
+    known_units = {k for t in _UNIT_TABLE.values() for k in t} | set(_TEMPS)
+    if (len(a) == 3 and len(b) == 3 and a.isalpha() and b.isalpha()
+            and _unit_key(a) not in known_units and _unit_key(b) not in known_units):
+        try:
+            rate, updated = web.exchange_rate(a, b)
+        except web.Blocked as exc:
+            raise ToolRefused(str(exc))
+        return (f"{amount:,.2f} {a.upper()} = {amount * rate:,.2f} {b.upper()} "
+                f"(rate {rate:,.4f}, updated {updated}, source open.er-api.com)")
+    ka, kb = _unit_key(a), _unit_key(b)
+    if ka in _TEMPS and kb in _TEMPS:
+        return f"{amount:g}°{_TEMPS[ka].upper()} = {_convert_temp(amount, _TEMPS[ka], _TEMPS[kb]):,.1f}°{_TEMPS[kb].upper()}"
+    for table in _UNIT_TABLE.values():
+        if ka in table and kb in table:
+            result = amount * table[ka] / table[kb]
+            return f"{amount:g} {a} = {result:,.4g} {b}"
+    raise ToolRefused(f"I can't convert {a} to {b}. They need to be two currencies or two units of the same kind.")
+
+
+# ---------------------------------------------------------------- knowledge
+
+def look_up(topic: str, kind: str = "wikipedia") -> str:
+    """Look up a topic on Wikipedia or a word in the dictionary.
+
+    Args:
+        topic: The subject or word to look up.
+        kind: "wikipedia" for an encyclopedia summary, or "definition" for a word's meaning.
+    """
+    try:
+        if kind.strip().lower() in ("definition", "define", "dictionary", "meaning"):
+            return web.define(topic)
+        return web.wikipedia(topic)
+    except web.Blocked as exc:
+        raise ToolRefused(str(exc))
+
+
+# ---------------------------------------------------------------- files and clipboard
+
+def files(action: str, query: str) -> str:
+    """Find files by name, or read a document, inside the folders sir has allowed.
+
+    Args:
+        action: "find" to search file names, or "read" to open one file (txt, md, csv, pdf, docx and similar).
+        query: For "find": part of the file name, e.g. "assessment". For "read": the full path from "find".
+    """
+    try:
+        if action.strip().lower() in ("find", "search", "locate"):
+            return pc.find_files(query)
+        if action.strip().lower() in ("read", "open", "summarise", "summarize"):
+            return pc.read_file(query)
+    except pc.NotAllowed as exc:
+        raise ToolRefused(str(exc))
+    raise ToolRefused('The action must be "find" or "read".')
+
+
+def clipboard(action: str, text: str = "") -> str:
+    """Read what sir has copied, or put text on the clipboard so he can paste it.
+
+    Args:
+        action: "read" to see the clipboard, or "write" to copy text onto it.
+        text: For "write": the text to copy.
+    """
+    try:
+        if action.strip().lower() in ("read", "get", "paste"):
+            return pc.read_clipboard()
+        if action.strip().lower() in ("write", "copy", "set"):
+            if not text:
+                raise ToolRefused("There's nothing to copy.")
+            return pc.write_clipboard(text)
+    except pc.NotAllowed as exc:
+        raise ToolRefused(str(exc))
+    raise ToolRefused('The action must be "read" or "write".')
+
+
 TOOLS = {
     fn.__name__: fn
     for fn in (
         get_current_time, open_app, create_note, search_notes, remember_fact,
         web_search, read_webpage, get_weather, calculate, system_status,
+        reminder, pc_control, convert, look_up, files, clipboard,
     )
 }
 

@@ -17,6 +17,12 @@ The language model runs on this PC through Ollama, so your conversations stay on
 | "What's the weather?", "Will it rain in Melbourne tomorrow?" | `get_weather` (Open-Meteo, no key needed) |
 | "What's 15% of 1,250?" | `calculate` (safe, never runs code) |
 | "How's the computer doing?" | `system_status` (CPU, memory, disk, battery, GPU) |
+| "Remind me at 3pm to submit the report", "Set a 10 minute timer", "What reminders do I have?" | `reminder` (Windows notification + he says it in the HUD; survives restarts) |
+| "Turn it up", "Pause the music", "Lock the screen", "Open YouTube" | `pc_control` (fixed actions only, no shutdown or delete) |
+| "100 AUD in taka?", "5 km in miles", "30°C in Fahrenheit" | `convert` (live daily exchange rates, no key needed) |
+| "Who was Alan Turing?", "Define serendipity" | `look_up` (Wikipedia, dictionary) |
+| "Find my assessment 3 file", "Read and summarise it" | `files` (only inside `ALLOWED_FOLDERS`; txt, md, csv, pdf, docx…) |
+| "What did I just copy?", "Copy that to my clipboard" | `clipboard` |
 
 ## Run it
 
@@ -24,7 +30,7 @@ The language model runs on this PC through Ollama, so your conversations stay on
 cd D:\jarvis-x; .\.venv\Scripts\Activate.ps1; uvicorn main:app --reload
 ```
 
-Then open http://127.0.0.1:8000/docs and use **POST /chat**. **GET /audit** shows every tool call Jarvis made or refused, and **GET /stats** shows response times and which tools he used.
+Then open http://127.0.0.1:8000/docs and use **POST /chat**. **GET /reminders** lists waiting reminders. **GET /audit** shows every tool call Jarvis made or refused, and **GET /stats** shows response times and which tools he used.
 
 ## Something not working?
 
@@ -59,7 +65,9 @@ Say "Hey Jarvis", then your request. Say "goodbye Jarvis" or press Ctrl+C to sto
 | `brain.py` | Thinking loop: history + facts + model + tools |
 | `memory.py` | SQLite storage: messages, facts, audit log |
 | `tools.py` | Actions Jarvis can take, with the security rules |
-| `web.py` | Internet tools: search, page reading, weather, with the network rules |
+| `web.py` | Internet tools: search, page reading, weather, Wikipedia, dictionary, exchange rates |
+| `pc.py` | PC control, clipboard, finding and reading files, with their rules |
+| `reminders.py` | Reminders: time parsing, storage, Windows notifications |
 | `security.py` | Secret, personal-ID and prompt-injection scanners |
 | `doctor.py` | Health check with fixes |
 | `voice.py` | Text to speech (Kokoro, British voice) |
@@ -79,6 +87,10 @@ Say "Hey Jarvis", then your request. Say "goodbye Jarvis" or press Ctrl+C to sto
 - `read_webpage` only opens public http(s) pages on ports 80/443. Every address a link resolves to, including after redirects, is checked, and this PC, the home network, link-local and cloud-metadata addresses are refused (server-side request forgery protection). Pages are size- and time-capped, and only text/HTML is read.
 - Search results and pages reach the model inside `<untrusted>` tags and are scanned for prompt injection first.
 - `calculate` parses the maths itself and never calls `eval`, so it can't be used to run code.
+- `pc_control` can only do its fixed list of actions; there is deliberately no shutdown, restart, delete or "run a command".
+- `open_website` refuses `javascript:`, `file:`, `data:` and other non-web links, links with passwords in them, and addresses on this PC or the home network.
+- `files` only works inside `ALLOWED_FOLDERS` (Documents, Desktop, Downloads by default) and the notes workspace. Paths are fully resolved first, so `..` and symlinks can't escape. Secret-looking files (`.env`, `.key`, `.pem`, `.kdbx`, SSH keys, anything named "password") are hidden from search and refused.
+- Text from files and the clipboard is scanned, secrets are redacted, and it reaches the model as untrusted data. Clipboard text is written through stdin, never pasted into a command.
 - The server listens on 127.0.0.1 only.
 
 ## Tests
