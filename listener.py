@@ -6,13 +6,30 @@ sent to Google and it works in any browser (Firefox included). What it hears is
 pushed to the HUD over GET /listen/events (server-sent events); the HUD then sends
 it through /chat/stream and speaks the reply. While Jarvis is speaking the HUD
 mutes the microphone (POST /listen/mute) so he doesn't hear and answer himself.
+
+Conversation mode: "Hey Jarvis" starts a conversation and the wake word is switched
+off, so every follow-up goes straight to him. "That's all, thank you" (see
+config.CONVERSATION_END_PHRASES) or CONVERSATION_IDLE_TIMEOUT seconds of silence ends
+it and the wake word is needed again.
 """
 import json
+import re
 import threading
 import time
 from collections import deque
 
+import config
 import talk
+
+
+def is_conversation_end(heard: str) -> bool:
+    """'That's all, thank you', 'thanks Jarvis, that will be all', 'goodbye'... (short phrases only,
+    so 'that's all I wanted to ask about the weather' doesn't end anything)."""
+    text = re.sub(r"[^a-z' ]", " ", heard.lower().replace("\u2019", "'"))
+    text = re.sub(r"\b(thank you|thanks|thank|cheers|sir|jarvis|ok(ay)?|alright|please|for now|very much|so much)\b", " ", text)
+    text = " ".join(text.split())
+    return bool(text) and len(text.split()) <= 5 and any(
+        text == p or text.startswith(p + " ") or text.endswith(" " + p) for p in config.CONVERSATION_END_PHRASES)
 
 
 class Listener:
@@ -27,6 +44,10 @@ class Listener:
         self._next_id = 1
         self.state = "off"  # off, loading, waiting, listening, error
         self.wake_word = True
+        self.conversation = False  # True between "Hey Jarvis" and "that's all"
+        self._muted = False
+        self._last_activity = time.monotonic()
+        self._watchdog = None
 
     # ---------------------------------------------------------------- events
 
@@ -61,6 +82,7 @@ class Listener:
     def stop(self) -> None:
         with self._lock:
             self._running = False
+            self.conversation = False
             recorder, self._recorder = self._recorder, None
         if recorder:
             try:
@@ -71,11 +93,47 @@ class Listener:
         self.emit("off")
 
     def mute(self, muted: bool) -> None:
+        self._muted = muted
+        if not muted:
+            self._last_activity = time.monotonic()  # the idle clock starts when he stops talking
         if self._recorder:
             try:
                 self._recorder.set_microphone(not muted)
             except Exception:
                 pass
+
+    # ---------------------------------------------------------------- conversation mode
+
+    def _set_wake_word(self, needed: bool) -> None:
+        """Switch RealtimeSTT between "wait for Hey Jarvis" and "take whatever is said".
+        The recorder checks this flag on every audio chunk, so it applies immediately."""
+        if self._recorder is not None and hasattr(self._recorder, "use_wake_words"):
+            self._recorder.use_wake_words = needed
+
+    def _begin_conversation(self) -> None:
+        if self.conversation or not self.wake_word:
+            return
+        self.conversation = True
+        self._last_activity = time.monotonic()
+        self._set_wake_word(False)
+        self.emit("conversation", active=True)
+
+    def end_conversation(self, reason: str) -> None:
+        if not self.conversation:
+            return
+        self.conversation = False
+        self._set_wake_word(True)
+        farewell = config.CONVERSATION_FAREWELL if reason == "phrase" else ""
+        self.emit("conversation", active=False, reason=reason, farewell=farewell)
+
+    def _watch_idle(self) -> None:
+        """End a conversation nobody is talking in (not while he is speaking)."""
+        while self._running:
+            time.sleep(1.0)
+            limit = config.CONVERSATION_IDLE_TIMEOUT
+            if (self.conversation and limit and not self._muted
+                    and time.monotonic() - self._last_activity > limit):
+                self.end_conversation("idle")
 
     # ---------------------------------------------------------------- the loop
 
@@ -92,6 +150,8 @@ class Listener:
             self.emit("error", detail=f"Couldn't start the microphone: {type(exc).__name__}: {exc}")
             return
         self._recorder = recorder
+        self._watchdog = threading.Thread(target=self._watch_idle, daemon=True, name="listener-idle")
+        self._watchdog.start()
         self.emit("waiting", wake_word=self.wake_word)
         while self._running:
             try:
@@ -104,8 +164,13 @@ class Listener:
             if not self._running:
                 break
             if heard and talk.is_real_speech(heard):
-                self.emit("heard", text=heard.strip())
-            self.emit("waiting", wake_word=self.wake_word)
+                self._last_activity = time.monotonic()
+                if self.conversation and is_conversation_end(heard):
+                    self.end_conversation("phrase")
+                else:
+                    self._begin_conversation()  # "Hey Jarvis" + request starts one
+                    self.emit("heard", text=heard.strip())
+            self.emit("waiting", wake_word=self.wake_word and not self.conversation)
             time.sleep(0.05)
 
     def sse(self, last_id: int = 0, max_seconds: float = 25.0):

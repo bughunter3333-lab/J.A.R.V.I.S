@@ -393,7 +393,7 @@ async function startListening(){
 function stopListening(){ if (rec && recActive){ try{rec.stop();}catch(_){} } }
 
 // ---------- local ears: the server listens on this PC's mic (RealtimeSTT) ----------
-let localSource = null, localState = "off";
+let localSource = null, localState = "off", inConversation = false;
 const LOCAL_STATUS = {loading:"LOADING EARS", waiting:"STANDING BY", wake:"YES, SIR?", listening:"LISTENING",
                       transcribing:"TRANSCRIBING", off:"STANDING BY", error:"EARS OFFLINE"};
 function connectLocalEars(){
@@ -405,16 +405,35 @@ function connectLocalEars(){
     if (kind === "heard"){ if (state === "speaking") stopSpeaking(); handleUser(ev.text); return; }
     if (kind === "error"){ caption(ev.detail); localState = "off"; els.rInput.textContent = "EARS OFFLINE"; els.mic.classList.remove("on"); return; }
     if (["loading","waiting","off","listening"].includes(kind)) localState = kind;
+    if (kind === "conversation"){
+      inConversation = ev.active;
+      if (ev.active){
+        els.rInput.textContent = "LOCAL · CONVERSATION";
+      } else {
+        els.rInput.textContent = cfg.wakeWord ? 'LOCAL · "HEY JARVIS"' : "LOCAL · OPEN MIC";
+        if (ev.farewell){
+          addLog("j", ev.farewell); caption(ev.farewell);
+          replyFinished = true; enqueueSpeech(ev.farewell);
+        } else {
+          caption('Standing by, sir. Say "Hey Jarvis" when you need me.', true);
+        }
+      }
+      return;
+    }
     if (kind === "waiting"){
-      els.rInput.textContent = cfg.wakeWord ? 'LOCAL · "HEY JARVIS"' : "LOCAL · OPEN MIC";
+      els.rInput.textContent = inConversation ? "LOCAL · CONVERSATION"
+        : (cfg.wakeWord ? 'LOCAL · "HEY JARVIS"' : "LOCAL · OPEN MIC");
       els.mic.classList.add("on");
       if (state === "listening") setState("idle");
+      if (els.caption.textContent.startsWith("Loading my ears"))   // clear the stale loading message
+        caption(cfg.wakeWord ? 'Say "Hey Jarvis", then your request. Say "that\'s all" when you\'re done.' : "I'm listening, sir.", true);
     }
     if (kind === "off"){ els.rInput.textContent = "LOCAL · OFF"; els.mic.classList.remove("on"); }
     if ((kind === "wake" || kind === "listening") && state !== "speaking" && state !== "thinking"){ setState("listening"); }
-    if (state !== "speaking" && state !== "thinking") els.status.textContent = LOCAL_STATUS[kind] || els.status.textContent;
+    if (state !== "speaking" && state !== "thinking")
+      els.status.textContent = (kind === "waiting" && inConversation) ? "IN CONVERSATION" : (LOCAL_STATUS[kind] || els.status.textContent);
     if (kind === "loading") caption("Loading my ears… the first time takes a little while, sir.", true);
-    if (kind === "waiting" && localState !== "off" && !els.caption.textContent) caption(cfg.wakeWord ? 'Say "Hey Jarvis", then your request.' : "I'm listening, sir.", true);
+    if (kind === "waiting" && !els.caption.textContent) caption(inConversation ? "I'm listening, sir." : (cfg.wakeWord ? 'Say "Hey Jarvis", then your request.' : "I'm listening, sir."), true);
   };
 }
 async function toggleLocalEars(){
@@ -517,6 +536,7 @@ let replyFinished = true;
 function onSpeechDone(){
   if (!replyFinished) return;
   setState("idle");
+  if (inConversation) els.status.textContent = "IN CONVERSATION";
   if (cfg.handsFree && !cfg.localMic) setTimeout(startListening, 350);
 }
 function sentences(text){

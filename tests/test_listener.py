@@ -5,6 +5,8 @@ import time
 
 from fastapi.testclient import TestClient
 
+import config
+import listener as listener_module
 from listener import Listener
 
 
@@ -14,6 +16,7 @@ class FakeRecorder:
         for p in phrases:
             self.phrases.put(p)
         self.mic_on, self.closed = True, False
+        self.use_wake_words = True  # the real RealtimeSTT attribute conversation mode flips
 
     def text(self):
         phrase = self.phrases.get(timeout=5)
@@ -116,3 +119,98 @@ def test_endpoints(monkeypatch):
     assert client.post("/listen/mute", json={"muted": True}).json() == {"muted": True}
     assert made["rec"].mic_on is False
     assert client.post("/listen/stop").json() == {"state": "off"}
+
+
+
+# ---------------------------------------------------------------- conversation mode
+
+def wait_conversation_end(lst, timeout=5):
+    end = time.monotonic() + timeout
+    while time.monotonic() < end:
+        found = [e for e in lst.events_after(0, 0) if e["type"] == "conversation" and not e["active"]]
+        if found:
+            return found[0]
+        time.sleep(0.05)
+    return None
+
+
+def heard_texts(lst):
+    return [e["text"] for e in lst.events_after(0, 0) if e["type"] == "heard"]
+
+
+def test_conversation_starts_with_hey_jarvis_and_ends_with_thats_all():
+    lst, made = make_listener(["what's the weather", "and tomorrow?", "That's all, thank you"])
+    lst.start()
+    end = wait_for(lst, "conversation", after=0)            # first: conversation started
+    assert end["active"] is True
+    done = wait_conversation_end(lst)
+    assert done and done["reason"] == "phrase" and done["farewell"] == config.CONVERSATION_FAREWELL
+    # the follow-up was passed on without a wake word; the goodbye was not sent to the brain
+    assert heard_texts(lst) == ["what's the weather", "and tomorrow?"]
+    assert made["rec"].use_wake_words is True and lst.conversation is False
+    lst.stop()
+
+
+def test_wake_word_is_off_during_a_conversation():
+    lst, made = make_listener(["open notepad"])
+    lst.start()
+    wait_for(lst, "heard")
+    assert lst.conversation is True and made["rec"].use_wake_words is False
+    lst.stop()
+
+
+def test_silence_ends_the_conversation(monkeypatch):
+    monkeypatch.setattr(config, "CONVERSATION_IDLE_TIMEOUT", 1)
+    lst, made = make_listener(["hello"])
+    lst.start()
+    wait_for(lst, "heard")
+    end = wait_conversation_end(lst, timeout=6)
+    assert end and end["reason"] == "idle" and end["farewell"] == ""
+    assert made["rec"].use_wake_words is True
+    lst.stop()
+
+
+def test_idle_clock_is_paused_while_he_speaks(monkeypatch):
+    monkeypatch.setattr(config, "CONVERSATION_IDLE_TIMEOUT", 1)
+    lst, _ = make_listener(["tell me a long story"])
+    lst.start()
+    wait_for(lst, "heard")
+    lst.mute(True)                       # Jarvis is talking
+    time.sleep(2.5)
+    assert lst.conversation is True      # still in the conversation
+    lst.mute(False)
+    lst.stop()
+
+
+def test_timeout_zero_means_never(monkeypatch):
+    monkeypatch.setattr(config, "CONVERSATION_IDLE_TIMEOUT", 0)
+    lst, _ = make_listener(["hi"])
+    lst.start()
+    wait_for(lst, "heard")
+    time.sleep(1.5)
+    assert lst.conversation is True
+    lst.stop()
+
+
+def test_open_mic_mode_has_no_conversations():
+    lst, made = make_listener(["hello", "that's all"])
+    lst.start(wake_word=False)
+    time.sleep(1.0)
+    assert lst.conversation is False
+    assert not [e for e in lst.events_after(0, 0) if e["type"] == "conversation"]
+    lst.stop()
+
+
+import pytest  # noqa: E402
+
+
+@pytest.mark.parametrize("said", ["That's all, thank you", "thank you, that's all", "Thanks Jarvis, that will be all.",
+                                  "Goodbye Jarvis", "that's it for now, thanks", "we're done", "okay thank you that's all"])
+def test_end_phrases(said):
+    assert listener_module.is_conversation_end(said)
+
+
+@pytest.mark.parametrize("said", ["that's all I wanted to ask about the weather", "thank you", "what's the weather",
+                                  "is that all the reminders?", "say goodbye to my friend", "stop the music"])
+def test_not_end_phrases(said):
+    assert not listener_module.is_conversation_end(said)
