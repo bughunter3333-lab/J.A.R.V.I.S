@@ -11,6 +11,7 @@ from pydantic import BaseModel, Field
 import brain
 import config
 import doctor
+import approvals
 import memory
 import reminders
 
@@ -83,7 +84,8 @@ def hud():
 @app.post("/chat")
 def talk(request: ChatRequest):
     try:
-        return {"reply": brain.respond(request.message, request.session)}
+        reply = brain.respond(request.message, request.session)
+        return {"reply": reply, "approval": approvals.pending(request.session)}
     except Exception as exc:
         # 503 = the brain is unavailable; the detail tells the HUD exactly why.
         raise HTTPException(status_code=503, detail=explain(exc)) from exc

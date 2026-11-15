@@ -18,6 +18,7 @@ from pathlib import Path
 
 import config
 import memory
+import approvals
 import pc
 import reminders
 import security
@@ -503,10 +504,18 @@ TOOLS = {
 }
 
 
-def run_tool(name: str, args: dict) -> str:
-    """Run one tool by name, enforce the registry, and write the audit log."""
+def run_tool(name: str, args: dict, session: str = "default", approved: bool = False) -> str:
+    """Run one tool by name, enforce the registry and approvals, and write the audit log.
+
+    `approved` is only ever set by brain.py after sir himself said yes; the model
+    can't pass it (it isn't a tool argument).
+    """
     if name not in TOOLS:
         result, ok = f"Refused: there is no tool called '{name}'.", False
+    elif not approved and approvals.needs_approval(name, args):
+        req = approvals.request(session, name, args)
+        result, ok = (f"WAITING FOR APPROVAL: I need sir's permission to {req['summary']}. "
+                      "This has NOT been done yet. Ask sir whether to go ahead."), False
     else:
         try:
             result, ok = TOOLS[name](**args), True

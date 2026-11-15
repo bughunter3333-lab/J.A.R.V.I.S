@@ -50,7 +50,7 @@ def test_open_app_refuses_anything_off_the_list(monkeypatch, name):
 
 
 def test_create_note_and_search():
-    assert tools.run_tool("create_note", {"title": "Shopping", "content": "milk and eggs"}) == "Saved note 'Shopping.txt'."
+    assert tools.run_tool("create_note", {"title": "Shopping", "content": "milk and eggs"}, approved=True) == "Saved note 'Shopping.txt'."
     assert (config.WORKSPACE / "Shopping.txt").read_text(encoding="utf-8") == "milk and eggs"
     assert "milk" in tools.run_tool("search_notes", {"query": "EGGS"})
     assert tools.run_tool("search_notes", {"query": "unicorn"}) == "No notes matched."
@@ -58,15 +58,15 @@ def test_create_note_and_search():
 
 @pytest.mark.parametrize("title", ["..\\..\\evil", "../../evil", "C:\\Windows\\evil", "sub/dir/evil"])
 def test_create_note_cannot_escape_workspace(title):
-    tools.run_tool("create_note", {"title": title, "content": "x"})
+    tools.run_tool("create_note", {"title": title, "content": "x"}, approved=True)
     written = [p for p in config.DATA_DIR.rglob("*.txt")]
     assert all(config.WORKSPACE in p.parents for p in written)
     assert not (config.DATA_DIR.parent / "evil.txt").exists()
 
 
 def test_create_note_never_overwrites():
-    tools.run_tool("create_note", {"title": "keep", "content": "original"})
-    assert tools.run_tool("create_note", {"title": "keep", "content": "replaced"}).startswith("Refused")
+    tools.run_tool("create_note", {"title": "keep", "content": "original"}, approved=True)
+    assert tools.run_tool("create_note", {"title": "keep", "content": "replaced"}, approved=True).startswith("Refused")
     assert (config.WORKSPACE / "keep.txt").read_text(encoding="utf-8") == "original"
 
 

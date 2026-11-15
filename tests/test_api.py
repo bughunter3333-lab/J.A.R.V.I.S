@@ -24,7 +24,7 @@ def test_status(client):
 
 def test_chat_passes_message_and_session(client):
     reply = client.post("/chat", json={"message": "hi", "session": "abc"}).json()
-    assert reply == {"reply": "echo:abc:hi"}
+    assert reply == {"reply": "echo:abc:hi", "approval": None}
 
 
 def test_chat_rejects_empty_and_oversized_messages(client):

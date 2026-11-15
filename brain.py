@@ -4,6 +4,7 @@ import time
 
 from ollama import chat
 
+import approvals
 import config
 import memory
 import security
@@ -61,8 +62,34 @@ def respond(message: str, session: str = "default") -> str:
     return reply
 
 
+def _answer_approval(message: str, session: str, trace: dict) -> str | None:
+    """If an action is waiting for sir and this message is his yes/no, settle it in code."""
+    waiting = approvals.pending(session)
+    if not waiting:
+        return None
+    verdict = approvals.decision(message)
+    if verdict is None:  # he moved on to something else: drop the request
+        approvals.settle(waiting["id"], "dropped")
+        return None
+    if verdict == "deny":
+        approvals.settle(waiting["id"], "denied")
+        memory.log_tool(waiting["tool"], waiting["args"], "Denied by sir.", False)
+        return "Very good, sir. I've left it."
+    approvals.settle(waiting["id"], "approved")
+    trace["tools"].append(waiting["tool"])
+    result = tools.run_tool(waiting["tool"], waiting["args"], session, approved=True)
+    if result.startswith(("Refused", "Failed")):
+        return f"I'm afraid that didn't work, sir. {result.split(':', 1)[-1].strip()}"
+    return f"Done, sir. {result}"
+
+
 def _respond(message: str, session: str, trace: dict) -> str:
     memory.init_db()
+    settled = _answer_approval(message, session, trace)
+    if settled is not None:
+        memory.add_message(session, "user", security.clean_for_storage("history", message))
+        memory.add_message(session, "assistant", settled)
+        return settled
     messages = [{"role": "system", "content": _system_prompt()}]
     messages += memory.recent_messages(session)
     messages.append({"role": "user", "content": message})
@@ -83,7 +110,7 @@ def _respond(message: str, session: str, trace: dict) -> str:
                 name = call.function.name
                 called.add(name)
                 trace["tools"].append(name)
-                result = tools.run_tool(name, dict(call.function.arguments or {}))
+                result = tools.run_tool(name, dict(call.function.arguments or {}), session)
                 messages.append({"role": "tool", "tool_name": name, "content": result})
             continue
         false_claim = (
