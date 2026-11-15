@@ -69,6 +69,62 @@ CASES = [
     ("What did I just copy?", "clipboard", {"action": "read"}),
     ("How long ago were you built?", "about_me", None),
     ("What version are you running?", "about_me", None),
+    # ---- Harder: casual, Australian and indirect phrasing
+    ("What's the arvo looking like weather-wise?", "get_weather", None),
+    ("Is it gonna be hot in Brisbane on the weekend?", "get_weather", {"place": "brisbane"}),
+    ("Do I need a brolly today?", "get_weather", None),
+    ("chuck on some tunes, actually no, just pause it", "pc_control", {"action": "play_pause"}),
+    ("It's way too loud", "pc_control", {"action": "volume_down"}),
+    ("I can't hear anything, turn it up a bit", "pc_control", {"action": "volume_up"}),
+    ("I'm stepping away from the desk, secure the computer", "pc_control", {"action": "lock_screen"}),
+    ("Pull up GitHub for me", "pc_control", {"action": "open_website"}),
+    ("Fire up Notepad", "open_app", {"name": "notepad"}),
+    ("I need to do some maths, open the calculator app", "open_app", {"name": "calculator"}),
+    ("Give me a heads up in 20 minutes to take the washing out", "reminder", {"action": "set"}),
+    ("Wake me up at 7am tomorrow", "reminder", {"action": "set"}),
+    ("Get rid of reminder number 3", "reminder", {"action": "cancel"}),
+    ("Have I got anything scheduled?", "reminder", {"action": "list"}),
+    ("Split a $187.40 dinner bill four ways", "calculate", None),
+    ("What's 2 to the power of 32?", "calculate", None),
+    ("If I earn $28.50 an hour for 22 hours, how much is that?", "calculate", None),
+    ("How many US dollars is 250 AUD?", "convert", None),
+    ("I'm 178 cm, what's that in feet?", "convert", None),
+    ("How many grams in 3 pounds?", "convert", None),
+    ("Is my laptop running hot?", "system_status", None),
+    ("Why is my PC so slow right now?", "system_status", None),
+    ("Jot down that the M57 report is due on Friday", ("create_note", "remember_fact", "reminder"), None),
+    ("Write a note titled ideas: build a Jarvis mobile app", "create_note", None),
+    ("What did I write about the cryptography project?", "search_notes", None),
+    ("For future reference, my student ID starts with 12", "remember_fact", None),
+    ("My girlfriend's name is Sara, don't forget it", "remember_fact", None),
+    ("Who's the current Prime Minister of Australia?", ("web_search", "look_up"), None),
+    ("What's the latest on the Optus outage?", "web_search", None),
+    ("Price of Bitcoin right now?", "web_search", None),
+    ("What happened in the cricket today?", "web_search", None),
+    ("What does 'ephemeral' mean?", "look_up", {"kind": "definition"}),
+    ("Tell me about the Great Barrier Reef", ("look_up", "web_search"), None),
+    ("Who invented the World Wide Web?", ("look_up", "web_search"), None),
+    ("Summarise https://www.cyber.gov.au for me", "read_webpage", None),
+    ("Where's my COIT12201 portfolio file?", "files", {"action": "find"}),
+    ("Open and read Documents/notes.txt", "files", {"action": "read"}),
+    ("Paste what's on my clipboard", "clipboard", {"action": "read"}),
+    ("Copy 'meeting at 3pm' to my clipboard", "clipboard", {"action": "write"}),
+    ("How old are you exactly?", "about_me", None),
+    ("When did I make you?", "about_me", None),
+    ("What day is it?", "get_current_time", None),
+    ("Is it past midnight yet?", "get_current_time", None),
+    # ---- Harder: things that must NOT trigger a tool
+    ("Don't open anything, I'm just chatting", None, None),
+    ("I don't need the weather, just say hi", None, None),
+    ("You remember Iron Man, right? He was cool.", None, None),
+    ("What's your favourite colour?", None, None),
+    ("Explain how a firewall works", None, None),
+    ("Write me a short motivational line for my exam", None, None),
+    ("What is 2 plus 2?", ("calculate", None), None),
+    ("Thanks, that's perfect", None, None),
+    ("I'm feeling a bit stressed about uni", None, None),
+    ("Say something in a British accent", None, None),
+    ("What's the difference between TCP and UDP?", None, None),
     # No tool needed: he should just answer.
     ("Good morning, Jarvis", None, None),
     ("Thank you, that's all", None, None),
@@ -98,11 +154,14 @@ def first_decision(message: str, chat=None) -> tuple[list[dict], float]:
 def grade(expected: str | None, want_args: dict | None, calls: list[dict]) -> tuple[bool, str]:
     """Return (passed, what happened)."""
     got = calls[0]["name"] if calls else None
+    if isinstance(expected, tuple) and None in expected and got is None:
+        return True, "ok"
     if expected is None:
         return (got is None, "answered directly" if got is None else f"called {got} (no tool needed)")
     allowed = expected if isinstance(expected, tuple) else (expected,)
     if got not in allowed:
-        return False, f"called {got or 'no tool'} instead of {' or '.join(allowed)}"
+        names = [a or "no tool" for a in allowed]
+        return False, f"called {got or 'no tool'} instead of {' or '.join(names)}"
     expected = got
     for key, value in (want_args or {}).items():
         actual = calls[0]["args"].get(key)
@@ -122,7 +181,7 @@ def run(repeat: int = 1, only: str | None = None, chat=None, show=print) -> dict
         for _ in range(repeat):
             calls, took = first_decision(message, chat)
             passed, note = grade(expected, want_args, calls)
-            key = "/".join(expected) if isinstance(expected, tuple) else (expected or "(no tool)")
+            key = "/".join(e or "(no tool)" for e in expected) if isinstance(expected, tuple) else (expected or "(no tool)")
             per_tool[key][0] += passed
             per_tool[key][1] += 1
             if not passed:
