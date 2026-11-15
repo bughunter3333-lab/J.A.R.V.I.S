@@ -19,3 +19,7 @@ logs/
 .idea/
 Thumbs.db
 .DS_Store
+
+# Fine-tuning: generated data, checkpoints and models
+training/data/
+training/output/

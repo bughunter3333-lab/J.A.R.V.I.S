@@ -31,11 +31,14 @@ def test_grade():
     assert tool_eval.grade("web_search", {"news": True}, [{"name": "web_search", "args": {"news": "true"}}])[0]
     assert tool_eval.grade(("look_up", "web_search"), None, [{"name": "web_search", "args": {}}])[0]
     assert not tool_eval.grade(("look_up", "web_search"), None, [])[0]
+    assert tool_eval.grade(("calculate", None), None, [])[0]                       # answering directly is fine
+    assert tool_eval.grade(("calculate", None), None, [{"name": "calculate", "args": {}}])[0]
+    assert not tool_eval.grade(("calculate", None), None, [{"name": "web_search", "args": {}}])[0]
 
 
 def test_run_scores_and_reports_mistakes():
     answers = {m: e for m, e, _ in tool_eval.CASES if not _ and not isinstance(e, tuple)}
     answers["Who was Alan Turing?"] = "web_search"  # one deliberate mistake
     s = tool_eval.run(only="look_up", chat=fake_chat_from(answers), show=lambda *_: None)
-    assert s["total"] == 2
+    assert s["total"] == sum(1 for _, e, _ in tool_eval.CASES if e == "look_up")
     assert ("look_up -> web_search", 1) in s["common_mistakes"]
