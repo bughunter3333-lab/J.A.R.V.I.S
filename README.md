@@ -78,7 +78,10 @@ Say "Jarvis", then your request. Say "goodbye Jarvis" or press Ctrl+C to stop.
 | `talk.py` | Voice conversation in the terminal: wake word, speech recognition, spoken replies |
 | `listener.py` | The same listening, run by the server for the HUD |
 | `approvals.py` | Asking sir before risky actions |
-| `evals/tool_eval.py` | Tool-picking test against the real model |
+| `evals/tool_eval.py` | Tool-picking test against the real model (101 questions) |
+| `evals/style_eval.py` | Voice test: does he sound like Jarvis? |
+| `evals/compare.py` | Both tests on several models, side by side |
+| `training/` | Fine-tuning: dataset builder, LoRA training, Ollama install, Colab notebook |
 | `ui/index.html` | The HUD: holographic interface served at `/hud` |
 | `data/` | Database, notes workspace, audio (not committed to Git) |
 
@@ -111,6 +114,36 @@ cd D:\jarvis-x; .\.venv\Scripts\Activate.ps1; python evals\tool_eval.py
 ```
 
 This asks the real model 41 typical requests and checks which tool it picks first (nothing is actually run). It prints a score, per-tool results and the most common mistakes, and saves the full results in `data\evals\`. Run it again after changing tools or the prompt, to see whether things got better or worse.
+
+## Training Jarvis
+
+Three levels, from cheapest to most involved. Always measure before and after.
+
+**1. Measure.** Two automatic tests run against the real model:
+
+```powershell
+python evals\tool_eval.py --repeat 3     # 101 questions: does he pick the right tool?
+python evals\style_eval.py               # 20 everyday prompts: does he sound like Jarvis?
+```
+
+The style test checks every reply for length, markdown, emoji, exclamation marks, over-used "sir", American spelling, robotic phrases ("as an AI") and his origin story. It runs in a throwaway database, so your history and memory are untouched.
+
+**2. Prompt.** His voice lives in `config.py` as `VOICE` (the rules) and `VOICE_EXAMPLES` (short example exchanges). Edit, rerun the style test, and keep what scores better.
+
+**3. Fine-tune (LoRA).** This retrains the model's weights on example conversations:
+
+```powershell
+python training\build_dataset.py              # ~160 conversations -> training\data\
+python training\train_lora.py --dry-run       # checks everything except the GPU part
+python training\train_lora.py                 # Qwen3-4B, fits an 8 GB card
+python training\install_model.py              # loads it into Ollama as jarvis-x
+python evals\compare.py --models qwen3:8b jarvis-x
+```
+
+- The dataset is built in code from the real system prompt and the real tool descriptions, so the model learns tool choice, arguments and his voice together. It **never contains a test question** (the builder refuses), so the test scores stay honest. Risky actions are trained to ask first, and instructions hidden in web results are trained to be ignored.
+- Training only learns from Jarvis's own turns; sir's messages and tool results are masked.
+- **Qwen3-8B** is too tight for an 8 GB card with these ~3,000-token examples. Use `training\colab_train_8b.ipynb` on Google Colab's free T4 GPU, then `python training\install_model.py --gguf jarvis-x.gguf`.
+- `compare.py` runs both tests on both models and only recommends switching if the fine-tune is better on **both**. To switch, set `MODEL = "jarvis-x"` in `config.py`; `qwen3:8b` stays installed.
 
 ## Tests
 
