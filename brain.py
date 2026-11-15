@@ -13,6 +13,11 @@ import tools
 # Small models sometimes say "I have remembered that" without calling the tool.
 # This is checked in code so a false claim never reaches the user.
 ASKED_TO_REMEMBER = re.compile(r"\b(remember|keep (it |that |this )?in mind|don'?t forget)\b", re.I)
+# An explicit "remember this" (not a question like "do you remember...?"). If sir says
+# this and the model doesn't call remember_fact, code makes it try again.
+REMEMBER_REQUEST = re.compile(
+    r"^(?!\s*(?:do|did|can|could|what|when|where|who|how|why)\b).*\b(?:remember (?:that|this|my|me|to)|"
+    r"keep (?:it |that |this )?in mind|don'?t forget|make a note that|note that)\b", re.I)
 CLAIMS_MEMORY = re.compile(r"\b(remembered|committed (it|that) to memory|made a note of)\b", re.I)
 # Stock sign-offs the model adds even when told not to. Removed in code.
 STOCK_OFFER = re.compile(
@@ -22,7 +27,7 @@ STOCK_OFFER = re.compile(
 )
 MEMORY_FAILED = "I am afraid that did not save to memory, sir. Would you tell me once more?"
 NUDGE = (
-    "You said you remembered something but did not call the remember_fact tool, "
+    "Sir asked you to remember something, but you did not call the remember_fact tool, "
     "so nothing was saved. Call remember_fact now with the fact, then reply to sir."
 )
 
@@ -189,8 +194,8 @@ def _respond(message: str, session: str, trace: dict):
             continue
         false_claim = (
             hold_back
-            and CLAIMS_MEMORY.search(reply)
             and "remember_fact" not in called
+            and (CLAIMS_MEMORY.search(reply) or REMEMBER_REQUEST.search(message))
         )
         if false_claim and not nudged:
             nudged = True

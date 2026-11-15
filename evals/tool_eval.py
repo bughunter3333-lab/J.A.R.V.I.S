@@ -23,7 +23,8 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 import config  # noqa: E402
 import tools  # noqa: E402
 
-# (what sir says, expected tool or None for "just answer", optional {arg: expected value})
+# (what sir says, expected tool or None for "just answer" or a tuple of acceptable tools,
+#  optional {arg: expected value})
 CASES = [
     ("What time is it?", "get_current_time", None),
     ("What's today's date?", "get_current_time", None),
@@ -57,6 +58,10 @@ CASES = [
     ("Convert 5 kilometres to miles", "convert", None),
     ("What's 30 degrees Celsius in Fahrenheit?", "convert", None),
     ("Who was Alan Turing?", "look_up", None),
+    ("Tell me about the Sydney Opera House", ("look_up", "web_search"), None),
+    ("Note that my sister's birthday is on 3 June", "remember_fact", None),
+    ("Go back to the previous song", "pc_control", {"action": "previous_track"}),
+    ("Next song please", "pc_control", {"action": "next_track"}),
     ("Define the word serendipity", "look_up", {"kind": "definition"}),
     ("Find my assessment 3 file", "files", {"action": "find"}),
     ("What did I just copy?", "clipboard", {"action": "read"}),
@@ -93,8 +98,10 @@ def grade(expected: str | None, want_args: dict | None, calls: list[dict]) -> tu
     got = calls[0]["name"] if calls else None
     if expected is None:
         return (got is None, "answered directly" if got is None else f"called {got} (no tool needed)")
-    if got != expected:
-        return False, f"called {got or 'no tool'} instead of {expected}"
+    allowed = expected if isinstance(expected, tuple) else (expected,)
+    if got not in allowed:
+        return False, f"called {got or 'no tool'} instead of {' or '.join(allowed)}"
+    expected = got
     for key, value in (want_args or {}).items():
         actual = calls[0]["args"].get(key)
         if isinstance(value, bool):
@@ -113,7 +120,7 @@ def run(repeat: int = 1, only: str | None = None, chat=None, show=print) -> dict
         for _ in range(repeat):
             calls, took = first_decision(message, chat)
             passed, note = grade(expected, want_args, calls)
-            key = expected or "(no tool)"
+            key = "/".join(expected) if isinstance(expected, tuple) else (expected or "(no tool)")
             per_tool[key][0] += passed
             per_tool[key][1] += 1
             if not passed:

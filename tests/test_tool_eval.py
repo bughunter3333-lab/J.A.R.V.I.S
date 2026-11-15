@@ -17,7 +17,8 @@ def fake_chat_from(answers):
 
 def test_every_expected_tool_exists():
     for _, expected, _ in tool_eval.CASES:
-        assert expected is None or expected in tools.TOOLS
+        for name in (expected if isinstance(expected, tuple) else (expected,)):
+            assert name is None or name in tools.TOOLS
 
 
 def test_grade():
@@ -28,10 +29,12 @@ def test_grade():
     assert tool_eval.grade("pc_control", {"action": "mute"}, [{"name": "pc_control", "args": {"action": "mute"}}])[0]
     assert not tool_eval.grade("pc_control", {"action": "mute"}, [{"name": "pc_control", "args": {"action": "volume_up"}}])[0]
     assert tool_eval.grade("web_search", {"news": True}, [{"name": "web_search", "args": {"news": "true"}}])[0]
+    assert tool_eval.grade(("look_up", "web_search"), None, [{"name": "web_search", "args": {}}])[0]
+    assert not tool_eval.grade(("look_up", "web_search"), None, [])[0]
 
 
 def test_run_scores_and_reports_mistakes():
-    answers = {m: e for m, e, _ in tool_eval.CASES if not _}
+    answers = {m: e for m, e, _ in tool_eval.CASES if not _ and not isinstance(e, tuple)}
     answers["Who was Alan Turing?"] = "web_search"  # one deliberate mistake
     s = tool_eval.run(only="look_up", chat=fake_chat_from(answers), show=lambda *_: None)
     assert s["total"] == 2
