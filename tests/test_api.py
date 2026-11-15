@@ -58,3 +58,27 @@ def test_speak_returns_wav(client, monkeypatch):
 def test_speak_rejects_empty_and_oversized_text(client):
     assert client.post("/speak", json={"text": ""}).status_code == 422
     assert client.post("/speak", json={"text": "x" * 2001}).status_code == 422
+
+
+def test_chat_failure_is_503_with_a_readable_reason(client, monkeypatch):
+    def broken(message, session="default"):
+        raise Exception("model 'qwen3:8b' not found (status code: 404)")
+    monkeypatch.setattr(brain, "respond", broken)
+    res = client.post("/chat", json={"message": "hi"})
+    assert res.status_code == 503 and "doctor" in res.json()["detail"]
+
+
+def test_health_endpoint(client, monkeypatch):
+    import doctor
+    monkeypatch.setattr(doctor, "_ollama_models", lambda: None)
+    body = client.get("/health").json()
+    assert body["status"] == "fail"
+    assert any(c["name"] == "Ollama" and c["status"] == "fail" for c in body["checks"])
+
+
+def test_stats_endpoint(client):
+    memory.add_trace("s", "m", 120, 1, ["get_current_time"], True)
+    memory.add_trace("s", "m", 300, 2, [], False, "boom")
+    body = client.get("/stats").json()
+    assert body["requests"] == 2 and body["errors"] == 1
+    assert body["tools_used"] == {"get_current_time": 1}

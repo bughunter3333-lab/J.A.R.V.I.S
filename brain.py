@@ -1,10 +1,12 @@
 """The thinking loop: memory + model + tools."""
 import re
+import time
 
 from ollama import chat
 
 import config
 import memory
+import security
 import tools
 
 # Small models sometimes say "I have remembered that" without calling the tool.
@@ -28,7 +30,26 @@ def _system_prompt() -> str:
 
 
 def respond(message: str, session: str = "default") -> str:
-    """Take what the user said, return Jarvis's reply, and save both to memory."""
+    """Take what the user said, return Jarvis's reply, and save both to memory.
+
+    Every request is traced (latency, model rounds, tools used) so slow or failing
+    turns can be spotted later with GET /stats.
+    """
+    started = time.perf_counter()
+    trace = {"rounds": 0, "tools": []}
+    try:
+        reply = _respond(message, session, trace)
+    except Exception as exc:
+        elapsed = (time.perf_counter() - started) * 1000
+        memory.add_trace(session, config.MODEL, elapsed, trace["rounds"], trace["tools"],
+                         False, f"{type(exc).__name__}: {exc}")
+        raise
+    elapsed = (time.perf_counter() - started) * 1000
+    memory.add_trace(session, config.MODEL, elapsed, trace["rounds"], trace["tools"], True)
+    return reply
+
+
+def _respond(message: str, session: str, trace: dict) -> str:
     memory.init_db()
     messages = [{"role": "system", "content": _system_prompt()}]
     messages += memory.recent_messages(session)
@@ -36,6 +57,7 @@ def respond(message: str, session: str = "default") -> str:
 
     reply, called, nudged = "", set(), False
     for _ in range(config.MAX_TOOL_ROUNDS):
+        trace["rounds"] += 1
         response = chat(
             model=config.MODEL,
             messages=messages,
@@ -48,6 +70,7 @@ def respond(message: str, session: str = "default") -> str:
             for call in response.message.tool_calls:
                 name = call.function.name
                 called.add(name)
+                trace["tools"].append(name)
                 result = tools.run_tool(name, dict(call.function.arguments or {}))
                 messages.append({"role": "tool", "tool_name": name, "content": result})
             continue
@@ -67,6 +90,8 @@ def respond(message: str, session: str = "default") -> str:
     else:
         reply = reply or "My apologies, sir. I got tangled in my own tools and gave up."
 
-    memory.add_message(session, "user", message)
+    # Never echo or store a secret, even if the model repeats one back.
+    reply = security.redact(reply)
+    memory.add_message(session, "user", security.clean_for_storage("history", message))
     memory.add_message(session, "assistant", reply)
     return reply

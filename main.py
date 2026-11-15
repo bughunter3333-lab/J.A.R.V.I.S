@@ -1,18 +1,44 @@
 """JARVIS-X web API. Start with:  uvicorn main:app --reload"""
 import io
+import os
+import threading
+from contextlib import asynccontextmanager
 
-from fastapi import FastAPI
+from fastapi import FastAPI, HTTPException
 from fastapi.responses import FileResponse, Response
 from pydantic import BaseModel, Field
 
 import brain
 import config
+import doctor
 import memory
 
-app = FastAPI(title="JARVIS-X")
-memory.init_db()
-
 HUD_PAGE = config.BASE_DIR / "ui" / "index.html"
+_voice_lock = threading.Lock()  # Kokoro does one sentence at a time
+
+
+def _warm_up_voice() -> None:
+    """Load Kokoro in the background so the HUD's first reply isn't silent."""
+    try:
+        import voice
+
+        with _voice_lock:
+            voice.synthesize("Ready.")
+        print("Voice loaded.")
+    except Exception as exc:  # the API still works without a voice
+        print(f"Voice not available yet: {type(exc).__name__}: {exc}")
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    memory.init_db()
+    if os.environ.get("JARVIS_NO_VOICE_WARMUP") != "1":
+        threading.Thread(target=_warm_up_voice, daemon=True).start()
+    yield
+
+
+app = FastAPI(title="JARVIS-X", lifespan=lifespan)
+memory.init_db()
 
 
 class ChatRequest(BaseModel):
@@ -24,9 +50,25 @@ class SpeakRequest(BaseModel):
     text: str = Field(min_length=1, max_length=2000)
 
 
+def explain(exc: Exception) -> str:
+    """Turn the usual brain failures into a sentence that says what to do."""
+    text = str(exc)
+    if "not found" in text and "model" in text:
+        return f"Model {config.MODEL} isn't installed in Ollama. Run: python doctor.py"
+    if isinstance(exc, ConnectionError) or "connect" in text.lower():
+        return "Ollama isn't running. Open the Ollama app, then try again."
+    return f"{type(exc).__name__}: {text[:200]}"
+
+
 @app.get("/")
 def status():
     return {"status": "online", "message": "Good evening. JARVIS-X is running."}
+
+
+@app.get("/health")
+def health():
+    """Quick doctor checks (Ollama, model, model folder, data folder, voice model)."""
+    return doctor.summary(doctor.run_checks(quick=True))
 
 
 @app.get("/hud", include_in_schema=False)
@@ -37,7 +79,11 @@ def hud():
 
 @app.post("/chat")
 def talk(request: ChatRequest):
-    return {"reply": brain.respond(request.message, request.session)}
+    try:
+        return {"reply": brain.respond(request.message, request.session)}
+    except Exception as exc:
+        # 503 = the brain is unavailable; the detail tells the HUD exactly why.
+        raise HTTPException(status_code=503, detail=explain(exc)) from exc
 
 
 @app.post("/speak")
@@ -45,10 +91,16 @@ def speak(request: SpeakRequest):
     """Jarvis's voice as a WAV file, for the HUD to play (and animate the core with)."""
     import soundfile as sf
 
+    import security
     import voice
 
+    try:
+        with _voice_lock:
+            audio = voice.synthesize(security.redact(request.text))
+    except Exception as exc:
+        raise HTTPException(status_code=503, detail=f"Voice unavailable: {type(exc).__name__}: {exc}") from exc
     buffer = io.BytesIO()
-    sf.write(buffer, voice.synthesize(request.text), voice.SAMPLE_RATE, format="WAV")
+    sf.write(buffer, audio, voice.SAMPLE_RATE, format="WAV")
     return Response(buffer.getvalue(), media_type="audio/wav")
 
 
@@ -56,3 +108,9 @@ def speak(request: SpeakRequest):
 def audit(limit: int = 20):
     """Recent tool calls, newest first. Shows what Jarvis did and what was refused."""
     return memory.recent_audit(min(max(limit, 1), 200))
+
+
+@app.get("/stats")
+def stats(limit: int = 100):
+    """Latency and tool usage over the most recent requests (from the traces table)."""
+    return memory.trace_stats(min(max(limit, 1), 1000))

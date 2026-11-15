@@ -10,7 +10,15 @@ Phase 1 runs fully locally: the language model runs on this PC through Ollama, s
 cd D:\jarvis-x; .\.venv\Scripts\Activate.ps1; uvicorn main:app --reload
 ```
 
-Then open http://127.0.0.1:8000/docs and use **POST /chat**. **GET /audit** shows every tool call Jarvis made or refused.
+Then open http://127.0.0.1:8000/docs and use **POST /chat**. **GET /audit** shows every tool call Jarvis made or refused, and **GET /stats** shows response times and which tools he used.
+
+## Something not working?
+
+```powershell
+cd D:\jarvis-x; .\.venv\Scripts\Activate.ps1; python doctor.py
+```
+
+It checks Ollama, the model, the model folder, the GPU, packages, the voice model and the data folder, and prints the exact fix for anything wrong. The HUD runs the same checks through **GET /health** when it loads.
 
 ## The HUD
 
@@ -33,10 +41,12 @@ Say "Hey Jarvis", then your request. Say "goodbye Jarvis" or press Ctrl+C to sto
 | File | Job |
 |---|---|
 | `config.py` | All settings: model, personality, allowed apps, voice |
-| `main.py` | Web API (`/chat`, `/speak`, `/audit`, `/hud`) |
+| `main.py` | Web API (`/chat`, `/speak`, `/audit`, `/stats`, `/health`, `/hud`) |
 | `brain.py` | Thinking loop: history + facts + model + tools |
 | `memory.py` | SQLite storage: messages, facts, audit log |
 | `tools.py` | Actions Jarvis can take, with the security rules |
+| `security.py` | Secret, personal-ID and prompt-injection scanners |
+| `doctor.py` | Health check with fixes |
 | `voice.py` | Text to speech (Kokoro, British voice) |
 | `talk.py` | Voice conversation: wake word, speech recognition, spoken replies |
 | `ui/index.html` | The HUD: holographic interface served at `/hud` |
@@ -46,7 +56,9 @@ Say "Hey Jarvis", then your request. Say "goodbye Jarvis" or press Ctrl+C to sto
 
 - Apps: only those listed in `config.ALLOWED_APPS` can be opened.
 - Files: notes are written only inside `data/workspace`, as `.txt`, and never overwrite.
-- Every tool call, allowed or refused, is written to the audit log.
+- Every tool call, allowed or refused, is written to the audit log, with secrets redacted.
+- Secrets and ID numbers (API keys, tokens, passwords, card, TFN and Medicare numbers) are never stored in memory, notes or history, and are redacted from replies. Each catch is logged as a `security` audit entry, without the secret itself.
+- Note contents are handed to the model as untrusted data, and text that looks like a prompt injection ("ignore previous instructions", fake `system:` lines, exfiltration requests) is flagged to the model and logged.
 - The model cannot claim it remembered something unless the tool really ran.
 - The server listens on 127.0.0.1 only.
 
@@ -58,3 +70,7 @@ python tests\smoke_live.py     # live check against the real model
 python tests\voice_roundtrip.py  # text -> speech -> text, no mic or speakers needed
 python tests\recorder_check.py   # wake word + listening pipeline, fed from a recording
 ```
+
+## Credits
+
+`security.py` (scanner patterns) and `doctor.py` (the idea of a health check with fixes) are adapted from [OpenJarvis](https://github.com/open-jarvis/OpenJarvis) by Stanford's Hazy Research and Scaling Intelligence Lab, Apache-2.0 licensed.
