@@ -97,7 +97,8 @@ def search_notes(query: str) -> str:
 
 
 def remember_fact(fact: str) -> str:
-    """Remember a lasting fact about sir for future conversations.
+    """Save a lasting fact or preference about sir. Call this whenever sir says remember, keep in mind,
+    don't forget or note that, or tells you something lasting about himself (likes, plans, people, dates).
 
     Args:
         fact: The fact to remember, as one short sentence.
@@ -275,7 +276,10 @@ def pc_control(action: str, url: str = "") -> str:
     """Control the computer: volume, music playback, lock the screen, or open a website in the browser.
 
     Args:
-        action: One of: volume_up, volume_down, mute, play_pause, next_track, previous_track, lock_screen, open_website.
+        action: One of: volume_up (louder), volume_down (quieter), mute (mute or unmute),
+            play_pause (play, pause or resume), next_track (skip this song, next song),
+            previous_track (go back to the previous song, replay the last one),
+            lock_screen (lock the computer), open_website (open a site in the browser).
         url: Only for open_website: the website address, e.g. "youtube.com".
     """
     try:
@@ -366,7 +370,8 @@ def convert(amount: float, from_unit: str, to_unit: str) -> str:
 # ---------------------------------------------------------------- knowledge
 
 def look_up(topic: str, kind: str = "wikipedia") -> str:
-    """Look up a topic on Wikipedia or a word in the dictionary.
+    """Look up a person, place, event, organisation or concept on Wikipedia, or a word in the dictionary.
+    Use this for "who was / who is / what is / tell me about" questions instead of answering from memory.
 
     Args:
         topic: The subject or word to look up.

@@ -106,3 +106,27 @@ def test_system_prompt_states_who_built_him():
     prompt = brain._system_prompt()
     assert "built by sir" in prompt and "bughunter3333-lab/J.A.R.V.I.S" in prompt
     assert "not related to Microsoft" in prompt
+
+
+def test_remember_request_without_any_tool_call_is_retried(monkeypatch):
+    """Found by evals/tool_eval.py: 'Keep in mind...' got a plain 'Noted, sir.' and nothing saved."""
+    seen = script(
+        monkeypatch,
+        say("Noted, sir."),
+        call("remember_fact", fact="Sir prefers tea over coffee."),
+        say("Very good, sir."),
+    )
+    assert brain.respond("Keep in mind that I prefer tea over coffee", "s") == "Very good, sir."
+    assert memory.all_facts() == ["Sir prefers tea over coffee."]
+    assert seen[1][-1]["content"] == brain.NUDGE
+
+
+def test_remember_request_that_still_isnt_saved_says_so(monkeypatch):
+    script(monkeypatch, say("Noted, sir."), say("Of course, sir."))
+    assert brain.respond("don't forget my exam is on Friday", "s") == brain.MEMORY_FAILED
+
+
+def test_question_about_memory_is_not_forced_to_save(monkeypatch):
+    seen = script(monkeypatch, say("You prefer tea, sir."))
+    assert brain.respond("do you remember what I like to drink?", "s") == "You prefer tea, sir."
+    assert len(seen) == 1
