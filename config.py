@@ -30,6 +30,18 @@ ALLOW_INTERNET = True
 HOME_CITY = "Sydney"  # used when you ask for the weather without naming a place
 SEARCH_REGION = "au-en"  # DuckDuckGo region for search results
 
+# Conversation mode (HUD local microphone): after "Hey Jarvis", keep listening without
+# the wake word until sir says one of these, or nobody speaks for CONVERSATION_IDLE_TIMEOUT
+# seconds (0 = never time out). The timeout stops a TV or someone else in the room from
+# giving commands indefinitely.
+CONVERSATION_END_PHRASES = (
+    "that's all", "that is all", "that will be all", "that'll be all", "that's it",
+    "nothing else", "we're done", "we are done", "goodbye", "good bye", "bye",
+    "stop listening", "go to sleep", "dismissed",
+)
+CONVERSATION_IDLE_TIMEOUT = 120
+CONVERSATION_FAREWELL = "Very good, sir. I'll be here if you need me."
+
 # Folders the "files" tool may search and read (the notes workspace is always included).
 # Anything outside these, and secret-looking files inside them (.env, keys, password
 # databases), is refused.
