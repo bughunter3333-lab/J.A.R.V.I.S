@@ -210,7 +210,8 @@ def calculate(expression: str) -> str:
 
 
 def system_status() -> str:
-    """Report how the computer is doing: CPU, memory, disk space, battery and graphics card."""
+    """Live readings from this PC: CPU use, RAM / memory use, free disk space, battery level and GPU use.
+    Always call this for questions about the computer's RAM, memory, CPU, storage, battery or GPU, never guess them."""
     import psutil
 
     parts = [f"CPU {psutil.cpu_percent(interval=0.5):.0f}%"]

@@ -44,6 +44,8 @@ CASES = [
     ("What is 4821 times 37?", "calculate", None),
     ("How's the computer doing?", "system_status", None),
     ("How much RAM am I using?", "system_status", None),
+    ("How much battery is left?", "system_status", None),
+    ("Is my GPU busy?", "system_status", None),
     ("Remind me in 10 minutes to check the oven", "reminder", {"action": "set"}),
     ("Set a 5 minute timer", "reminder", {"action": "set"}),
     ("What reminders do I have?", "reminder", {"action": "list"}),
