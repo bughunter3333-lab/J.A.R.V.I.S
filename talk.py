@@ -65,7 +65,7 @@ def wake_word_model_path() -> str:
     return str(Path(openwakeword.MODELS[config.WAKE_WORD]["model_path"]).with_suffix(".onnx"))
 
 
-def make_recorder(use_wake_word: bool = True, use_microphone: bool = True):
+def make_recorder(use_wake_word: bool = True, use_microphone: bool = True, **callbacks):
     from RealtimeSTT import AudioToTextRecorder
 
     options = dict(
@@ -85,6 +85,7 @@ def make_recorder(use_wake_word: bool = True, use_microphone: bool = True):
             openwakeword_model_paths=wake_word_model_path(),
             wake_word_timeout=6.0,
         )
+    options.update(callbacks)  # e.g. on_wakeword_detected, used by the HUD listener
     return AudioToTextRecorder(**options)
 
 

@@ -5,7 +5,7 @@ import os
 import threading
 from contextlib import asynccontextmanager
 
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, Header, HTTPException
 from fastapi.responses import FileResponse, Response, StreamingResponse
 from pydantic import BaseModel, Field
 
@@ -40,6 +40,8 @@ async def lifespan(app: FastAPI):
     if os.environ.get("JARVIS_NO_VOICE_WARMUP") != "1":
         threading.Thread(target=_warm_up_voice, daemon=True).start()
     yield
+    from listener import listener
+    listener.stop()  # release the microphone when the server stops or reloads
 
 
 app = FastAPI(title="JARVIS-X", lifespan=lifespan)
@@ -132,6 +134,45 @@ def forget_history(session: str):
     """Clear one conversation so Jarvis stops repeating something wrong he said earlier.
     Remembered facts and the audit log are not touched."""
     return {"session": session, "deleted": memory.clear_session(session[:64])}
+
+
+class ListenRequest(BaseModel):
+    wake_word: bool = True
+
+
+class MuteRequest(BaseModel):
+    muted: bool
+
+
+@app.post("/listen/start")
+def listen_start(request: ListenRequest):
+    """Start local listening on this PC's microphone (RealtimeSTT + "hey jarvis")."""
+    from listener import listener
+    return {"state": listener.start(request.wake_word)}
+
+
+@app.post("/listen/stop")
+def listen_stop():
+    from listener import listener
+    listener.stop()
+    return {"state": "off"}
+
+
+@app.post("/listen/mute")
+def listen_mute(request: MuteRequest):
+    """The HUD mutes the mic while Jarvis speaks, so he doesn't answer himself."""
+    from listener import listener
+    listener.mute(request.muted)
+    return {"muted": request.muted}
+
+
+@app.get("/listen/events")
+def listen_events(last_event_id: str | None = Header(default=None)):
+    """Server-sent events: loading, waiting, wake, listening, transcribing, heard {text}, error, off."""
+    from listener import listener
+    last = int(last_event_id) if (last_event_id or "").isdigit() else 0
+    return StreamingResponse(listener.sse(last), media_type="text/event-stream",
+                             headers={"Cache-Control": "no-cache"})
 
 
 @app.get("/audit")
