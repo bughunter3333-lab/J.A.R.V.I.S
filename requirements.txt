@@ -17,6 +17,7 @@ kokoro
 soundfile
 sounddevice
 RealtimeSTT[faster-whisper,openwakeword]
+pvporcupine==1.9.5  # "Jarvis" wake word (offline, no key; the version RealtimeSTT expects)
 silero-vad
 
 # Tests

@@ -45,7 +45,7 @@ It checks Ollama, the model, the model folder, the GPU, packages, the voice mode
 
 With the server running, open http://127.0.0.1:8000/hud (any browser). It shows a blue holographic core that reacts while Jarvis listens, thinks and speaks.
 
-- **Talking:** click the mic (or press Space) once to switch on listening; it stays on. Say **"Hey Jarvis"** and your request, then just keep talking: follow-ups need no wake word. Say **"that's all, thank you"** (or "that will be all", "goodbye Jarvis", "we're done") to end the conversation; after that he waits for "Hey Jarvis" again. If nobody speaks for 2 minutes the conversation ends by itself, so a TV or someone else in the room can't keep giving commands (`CONVERSATION_IDLE_TIMEOUT` in `config.py`, 0 = never). The server listens on this PC's microphone with RealtimeSTT, the same as `talk.py`, so nothing goes to Google and it works in Firefox. The mic is muted while he speaks. In ⚙ settings you can turn off the wake word, or switch back to the browser's own speech recognition (Chrome/Edge, which sends audio to Google).
+- **Talking:** click the mic (or press Space) once to switch on listening; it stays on. Say **"Jarvis"** and your request, then just keep talking: follow-ups need no wake word. Say **"that's all, thank you"** (or "that will be all", "goodbye Jarvis", "we're done") to end the conversation; after that he waits for "Jarvis" again. The wake word is `WAKE_PHRASE` in `config.py`: `"jarvis"` (Porcupine's built-in keyword, offline, no account) or `"hey jarvis"` (openWakeWord); `WAKE_SENSITIVITY` (0–1) trades missed wake-ups against false ones. If nobody speaks for 2 minutes the conversation ends by itself, so a TV or someone else in the room can't keep giving commands (`CONVERSATION_IDLE_TIMEOUT` in `config.py`, 0 = never). The server listens on this PC's microphone with RealtimeSTT, the same as `talk.py`, so nothing goes to Google and it works in Firefox. The mic is muted while he speaks. In ⚙ settings you can turn off the wake word, or switch back to the browser's own speech recognition (Chrome/Edge, which sends audio to Google).
 - **Typing:** press Enter to send, and Esc to stop him.
 - **Replies stream:** the status line shows what he's doing ("Searching the web…"), and he starts speaking after the first sentence.
 - **Approvals:** for anything risky he asks first and shows **Approve / Deny**. Saying "yes" or "no" works too.
@@ -57,7 +57,7 @@ With the server running, open http://127.0.0.1:8000/hud (any browser). It shows 
 cd D:\jarvis-x; .\.venv\Scripts\Activate.ps1; python talk.py
 ```
 
-Say "Hey Jarvis", then your request. Say "goodbye Jarvis" or press Ctrl+C to stop.
+Say "Jarvis", then your request. Say "goodbye Jarvis" or press Ctrl+C to stop.
 `python talk.py --no-wake` listens without the wake word. `python talk.py --text` lets you type while he answers out loud.
 
 ## Files

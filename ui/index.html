@@ -99,7 +99,7 @@
     <label>JARVIS-X SERVER (blank = this page's server)</label><input id="s-server" placeholder="http://127.0.0.1:8000">
     <div class="row"><input type="checkbox" id="s-servervoice"> Use Jarvis's Kokoro voice (else browser voice)</div>
     <div class="row"><input type="checkbox" id="s-localmic"> Local microphone (private, any browser)</div>
-    <div class="row"><input type="checkbox" id="s-wakeword"> Wait for "Hey Jarvis"</div>
+    <div class="row"><input type="checkbox" id="s-wakeword"> Wait for the wake word ("<span class="wakename">Jarvis</span>")</div>
     <button class="btn" id="s-clear" style="width:100%;margin-top:12px">CLEAR CONVERSATION</button>
     <div class="note">Makes Jarvis forget this chat (not remembered facts), e.g. after he got something wrong.</div>
     <div class="note">Replies go through /chat, so tools, memory and the audit log all apply. If /speak fails, the browser voice takes over automatically.</div>
@@ -121,8 +121,8 @@
 const DEFAULTS = {
   server: "",          // blank = same server that served this page (uvicorn main:app)
   serverVoice: true,   // use /speak (Kokoro bm_george); falls back to the browser voice
-  localMic: true,      // listen on this PC's mic via the server (RealtimeSTT + "hey jarvis"), not Google
-  wakeWord: true,      // with localMic: wait for "hey jarvis" before each request
+  localMic: true,      // listen on this PC's mic via the server (RealtimeSTT + wake word), not Google
+  wakeWord: true,      // with localMic: wait for the wake word before starting a conversation
   handsFree: false
 };
 function loadCfg(){ try{ return {...DEFAULTS, ...JSON.parse(localStorage.getItem("jarvis.hud")||"{}")}; }catch(e){ return {...DEFAULTS}; } }
@@ -394,6 +394,8 @@ function stopListening(){ if (rec && recActive){ try{rec.stop();}catch(_){} } }
 
 // ---------- local ears: the server listens on this PC's mic (RealtimeSTT) ----------
 let localSource = null, localState = "off", inConversation = false;
+let WAKE = "Jarvis";   // updated from the server (config.WAKE_PHRASE)
+const wakeLabel = () => `LOCAL · "${WAKE.toUpperCase()}"`;
 const LOCAL_STATUS = {loading:"LOADING EARS", waiting:"STANDING BY", wake:"YES, SIR?", listening:"LISTENING",
                       transcribing:"TRANSCRIBING", off:"STANDING BY", error:"EARS OFFLINE"};
 function connectLocalEars(){
@@ -410,30 +412,34 @@ function connectLocalEars(){
       if (ev.active){
         els.rInput.textContent = "LOCAL · CONVERSATION";
       } else {
-        els.rInput.textContent = cfg.wakeWord ? 'LOCAL · "HEY JARVIS"' : "LOCAL · OPEN MIC";
+        els.rInput.textContent = cfg.wakeWord ? wakeLabel() : "LOCAL · OPEN MIC";
         if (ev.farewell){
           addLog("j", ev.farewell); caption(ev.farewell);
           replyFinished = true; enqueueSpeech(ev.farewell);
         } else {
-          caption('Standing by, sir. Say "Hey Jarvis" when you need me.', true);
+          caption(`Standing by, sir. Say "${WAKE}" when you need me.`, true);
         }
       }
       return;
     }
     if (kind === "waiting"){
+      if (ev.wake_phrase){
+        WAKE = ev.wake_phrase.replace(/\b\w/g, c => c.toUpperCase());
+        document.querySelectorAll(".wakename").forEach(e => e.textContent = WAKE);
+      }
       els.rInput.textContent = inConversation ? "LOCAL · CONVERSATION"
-        : (cfg.wakeWord ? 'LOCAL · "HEY JARVIS"' : "LOCAL · OPEN MIC");
+        : (cfg.wakeWord ? wakeLabel() : "LOCAL · OPEN MIC");
       els.mic.classList.add("on");
       if (state === "listening") setState("idle");
       if (els.caption.textContent.startsWith("Loading my ears"))   // clear the stale loading message
-        caption(cfg.wakeWord ? 'Say "Hey Jarvis", then your request. Say "that\'s all" when you\'re done.' : "I'm listening, sir.", true);
+        caption(cfg.wakeWord ? `Say "${WAKE}", then your request. Say "that's all" when you're done.` : "I'm listening, sir.", true);
     }
     if (kind === "off"){ els.rInput.textContent = "LOCAL · OFF"; els.mic.classList.remove("on"); }
     if ((kind === "wake" || kind === "listening") && state !== "speaking" && state !== "thinking"){ setState("listening"); }
     if (state !== "speaking" && state !== "thinking")
       els.status.textContent = (kind === "waiting" && inConversation) ? "IN CONVERSATION" : (LOCAL_STATUS[kind] || els.status.textContent);
     if (kind === "loading") caption("Loading my ears… the first time takes a little while, sir.", true);
-    if (kind === "waiting" && !els.caption.textContent) caption(inConversation ? "I'm listening, sir." : (cfg.wakeWord ? 'Say "Hey Jarvis", then your request.' : "I'm listening, sir."), true);
+    if (kind === "waiting" && !els.caption.textContent) caption(inConversation ? "I'm listening, sir." : (cfg.wakeWord ? `Say "${WAKE}", then your request.` : "I'm listening, sir."), true);
   };
 }
 async function toggleLocalEars(){

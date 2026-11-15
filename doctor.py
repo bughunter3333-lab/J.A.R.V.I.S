@@ -113,6 +113,8 @@ def check_gpu() -> Check:
 def check_packages() -> Check:
     needed = {"fastapi": "fastapi", "uvicorn": "uvicorn", "ollama": "ollama", "kokoro": "kokoro",
               "soundfile": "soundfile", "sounddevice": "sounddevice", "RealtimeSTT": "RealtimeSTT"}
+    if config.WAKE_PHRASE.strip().lower() == "jarvis":
+        needed["pvporcupine"] = "pvporcupine==1.9.5"
     missing = [pip for mod, pip in needed.items() if importlib.util.find_spec(mod) is None]
     if missing:
         return Check("Packages", "fail", "missing: " + ", ".join(missing),
