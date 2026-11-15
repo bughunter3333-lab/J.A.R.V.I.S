@@ -1,16 +1,18 @@
 """JARVIS-X web API. Start with:  uvicorn main:app --reload"""
 import io
+import json
 import os
 import threading
 from contextlib import asynccontextmanager
 
-from fastapi import FastAPI, HTTPException
-from fastapi.responses import FileResponse, Response
+from fastapi import FastAPI, Header, HTTPException
+from fastapi.responses import FileResponse, Response, StreamingResponse
 from pydantic import BaseModel, Field
 
 import brain
 import config
 import doctor
+import approvals
 import memory
 import reminders
 
@@ -38,6 +40,8 @@ async def lifespan(app: FastAPI):
     if os.environ.get("JARVIS_NO_VOICE_WARMUP") != "1":
         threading.Thread(target=_warm_up_voice, daemon=True).start()
     yield
+    from listener import listener
+    listener.stop()  # release the microphone when the server stops or reloads
 
 
 app = FastAPI(title="JARVIS-X", lifespan=lifespan)
@@ -83,10 +87,28 @@ def hud():
 @app.post("/chat")
 def talk(request: ChatRequest):
     try:
-        return {"reply": brain.respond(request.message, request.session)}
+        reply = brain.respond(request.message, request.session)
+        return {"reply": reply, "approval": approvals.pending(request.session)}
     except Exception as exc:
         # 503 = the brain is unavailable; the detail tells the HUD exactly why.
         raise HTTPException(status_code=503, detail=explain(exc)) from exc
+
+
+@app.post("/chat/stream")
+def talk_stream(request: ChatRequest):
+    """Same as /chat, streamed as one JSON object per line: status (which tool he's using),
+    sentence (speak this now), then done (with any action waiting for approval) or error."""
+
+    def events():
+        try:
+            for event in brain.respond_events(request.message, request.session):
+                if event["type"] == "done":
+                    event["approval"] = approvals.pending(request.session)
+                yield json.dumps(event) + "\n"
+        except Exception as exc:
+            yield json.dumps({"type": "error", "detail": explain(exc)}) + "\n"
+
+    return StreamingResponse(events(), media_type="application/x-ndjson")
 
 
 @app.post("/speak")
@@ -112,6 +134,45 @@ def forget_history(session: str):
     """Clear one conversation so Jarvis stops repeating something wrong he said earlier.
     Remembered facts and the audit log are not touched."""
     return {"session": session, "deleted": memory.clear_session(session[:64])}
+
+
+class ListenRequest(BaseModel):
+    wake_word: bool = True
+
+
+class MuteRequest(BaseModel):
+    muted: bool
+
+
+@app.post("/listen/start")
+def listen_start(request: ListenRequest):
+    """Start local listening on this PC's microphone (RealtimeSTT + "hey jarvis")."""
+    from listener import listener
+    return {"state": listener.start(request.wake_word)}
+
+
+@app.post("/listen/stop")
+def listen_stop():
+    from listener import listener
+    listener.stop()
+    return {"state": "off"}
+
+
+@app.post("/listen/mute")
+def listen_mute(request: MuteRequest):
+    """The HUD mutes the mic while Jarvis speaks, so he doesn't answer himself."""
+    from listener import listener
+    listener.mute(request.muted)
+    return {"muted": request.muted}
+
+
+@app.get("/listen/events")
+def listen_events(last_event_id: str | None = Header(default=None)):
+    """Server-sent events: loading, waiting, wake, listening, transcribing, heard {text}, error, off."""
+    from listener import listener
+    last = int(last_event_id) if (last_event_id or "").isdigit() else 0
+    return StreamingResponse(listener.sse(last), media_type="text/event-stream",
+                             headers={"Cache-Control": "no-cache"})
 
 
 @app.get("/audit")

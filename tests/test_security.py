@@ -64,7 +64,7 @@ def test_remember_fact_refuses_secrets_and_logs_without_the_secret():
 
 
 def test_notes_are_redacted_before_saving():
-    tools.run_tool("create_note", {"title": "card", "content": f"Card {CARD} expires soon"})
+    tools.run_tool("create_note", {"title": "card", "content": f"Card {CARD} expires soon"}, approved=True)
     saved = (config.WORKSPACE / "card.txt").read_text()
     assert CARD not in saved and "[REDACTED:credit_card]" in saved
 

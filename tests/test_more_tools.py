@@ -87,14 +87,14 @@ def test_pc_control_has_no_dangerous_actions():
 def test_open_website_refuses_odd_and_internal(url, monkeypatch):
     opened = []
     monkeypatch.setattr(pc.webbrowser, "open", lambda u, new=0: opened.append(u))
-    assert tools.run_tool("pc_control", {"action": "open_website", "url": url}).startswith("Refused")
+    assert tools.run_tool("pc_control", {"action": "open_website", "url": url}, approved=True).startswith("Refused")
     assert opened == []
 
 
 def test_open_website(monkeypatch):
     opened = []
     monkeypatch.setattr(pc.webbrowser, "open", lambda u, new=0: opened.append(u))
-    assert tools.run_tool("pc_control", {"action": "open_website", "url": "youtube.com"}) == "Opened youtube.com in the browser."
+    assert tools.run_tool("pc_control", {"action": "open_website", "url": "youtube.com"}, approved=True) == "Opened youtube.com in the browser."
     assert opened == ["https://youtube.com"]
 
 
@@ -220,7 +220,7 @@ def test_clipboard_write_goes_through_stdin(monkeypatch):
     monkeypatch.setattr(pc.sys, "platform", "win32")
     monkeypatch.setattr(pc, "_powershell", lambda cmd, stdin=None: calls.append((cmd, stdin)) or "")
     evil = "'; Remove-Item C:\\ -Recurse; '"
-    assert tools.run_tool("clipboard", {"action": "write", "text": evil}) == "Copied to the clipboard."
+    assert tools.run_tool("clipboard", {"action": "write", "text": evil}, approved=True) == "Copied to the clipboard."
     assert evil not in calls[0][0] and calls[0][1] == evil
 
 

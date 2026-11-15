@@ -55,6 +55,11 @@
   .settings .row input{width:auto}
   .settings .note{color:var(--dim);margin-top:12px;font-size:11px;line-height:1.45}
 
+  .approval{position:absolute;left:50%;bottom:196px;transform:translateX(-50%);display:none;gap:10px;align-items:center;
+    background:rgba(4,16,34,.9);border:1px solid var(--c1);padding:8px 10px 8px 16px;font-size:13px;color:#d9f4ff;
+    box-shadow:0 0 24px rgba(56,200,255,.25);white-space:nowrap}
+  .approval.open{display:flex}
+  .approval .btn{height:34px}
   .hint{position:absolute;left:50%;bottom:12px;transform:translateX(-50%);font-family:var(--mono);font-size:9px;letter-spacing:.3em;color:rgba(120,200,255,.3)}
   @media (max-width:900px){.readout,.log{display:none}}
 </style>
@@ -80,6 +85,8 @@
 
   <div class="status" id="status">INITIALISING</div>
   <div class="caption" id="caption"></div>
+  <div class="approval" id="approval"><span></span>
+    <button class="btn" id="approveBtn">APPROVE</button><button class="btn" id="denyBtn">DENY</button></div>
 
   <div class="dock">
     <button class="btn" id="micBtn" title="Talk (hold Space)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="3" width="6" height="12" rx="3"/><path d="M5 11a7 7 0 0 0 14 0M12 18v3"/></svg></button>
@@ -91,12 +98,14 @@
   <div class="settings" id="settings">
     <label>JARVIS-X SERVER (blank = this page's server)</label><input id="s-server" placeholder="http://127.0.0.1:8000">
     <div class="row"><input type="checkbox" id="s-servervoice"> Use Jarvis's Kokoro voice (else browser voice)</div>
+    <div class="row"><input type="checkbox" id="s-localmic"> Local microphone (private, any browser)</div>
+    <div class="row"><input type="checkbox" id="s-wakeword"> Wait for "Hey Jarvis"</div>
     <button class="btn" id="s-clear" style="width:100%;margin-top:12px">CLEAR CONVERSATION</button>
     <div class="note">Makes Jarvis forget this chat (not remembered facts), e.g. after he got something wrong.</div>
     <div class="note">Replies go through /chat, so tools, memory and the audit log all apply. If /speak fails, the browser voice takes over automatically.</div>
   </div>
 
-  <div class="hint">HOLD SPACE TO TALK · ENTER TO SEND · ESC TO STOP</div>
+  <div class="hint">MIC BUTTON OR SPACE TO START LISTENING · ENTER TO SEND · ESC TO STOP</div>
 </div>
 
 <script>
@@ -112,6 +121,8 @@
 const DEFAULTS = {
   server: "",          // blank = same server that served this page (uvicorn main:app)
   serverVoice: true,   // use /speak (Kokoro bm_george); falls back to the browser voice
+  localMic: true,      // listen on this PC's mic via the server (RealtimeSTT + "hey jarvis"), not Google
+  wakeWord: true,      // with localMic: wait for "hey jarvis" before each request
   handsFree: false
 };
 function loadCfg(){ try{ return {...DEFAULTS, ...JSON.parse(localStorage.getItem("jarvis.hud")||"{}")}; }catch(e){ return {...DEFAULTS}; } }
@@ -124,7 +135,7 @@ const SESSION = "hud";   // conversation history for the HUD is kept server-side
 const $ = id => document.getElementById(id);
 const els = {
   status:$("status"), caption:$("caption"), log:$("log"), text:$("text"),
-  mic:$("micBtn"), hands:$("handsBtn"), set:$("setBtn"), settings:$("settings"),
+  mic:$("micBtn"), approval:$("approval"), hands:$("handsBtn"), set:$("setBtn"), settings:$("settings"),
   rModel:$("r-model"), rVoice:$("r-voice"), rInput:$("r-input"), rLat:$("r-lat"), rLevel:$("r-level"), rAct:$("r-act")
 };
 
@@ -163,6 +174,7 @@ function readLevel(){
   } else if (state==="speaking"){
     raw = fakeLevel;
   }
+  if (state==="listening" && cfg.localMic) raw = Math.max(raw, 0.18 + 0.12*Math.sin(performance.now()/180));
   level += (raw - level) * 0.25;
   return level;
 }
@@ -370,7 +382,8 @@ if (SR){
 }
 
 async function startListening(){
-  if (!rec) { caption("Voice input needs Chrome. You can type below.", true); return; }
+  if (cfg.localMic){ if (localState === "off" || localState === "error") toggleLocalEars(); return; }
+  if (!rec) { caption("Voice input needs Chrome, or switch on the local microphone in settings.", true); return; }
   if (state==="speaking") stopSpeaking();
   if (recActive || state==="thinking") return;
   await attachMic();
@@ -378,6 +391,45 @@ async function startListening(){
   try{ rec.start(); recActive=true; }catch(e){ /* already started */ }
 }
 function stopListening(){ if (rec && recActive){ try{rec.stop();}catch(_){} } }
+
+// ---------- local ears: the server listens on this PC's mic (RealtimeSTT) ----------
+let localSource = null, localState = "off";
+const LOCAL_STATUS = {loading:"LOADING EARS", waiting:"STANDING BY", wake:"YES, SIR?", listening:"LISTENING",
+                      transcribing:"TRANSCRIBING", off:"STANDING BY", error:"EARS OFFLINE"};
+function connectLocalEars(){
+  if (localSource || !cfg.localMic) return;
+  localSource = new EventSource(api("/listen/events"));
+  localSource.onmessage = e => {
+    const ev = JSON.parse(e.data);
+    const kind = ev.type === "state" ? ev.state : ev.type;
+    if (kind === "heard"){ if (state === "speaking") stopSpeaking(); handleUser(ev.text); return; }
+    if (kind === "error"){ caption(ev.detail); localState = "off"; els.rInput.textContent = "EARS OFFLINE"; els.mic.classList.remove("on"); return; }
+    if (["loading","waiting","off","listening"].includes(kind)) localState = kind;
+    if (kind === "waiting"){
+      els.rInput.textContent = cfg.wakeWord ? 'LOCAL · "HEY JARVIS"' : "LOCAL · OPEN MIC";
+      els.mic.classList.add("on");
+      if (state === "listening") setState("idle");
+    }
+    if (kind === "off"){ els.rInput.textContent = "LOCAL · OFF"; els.mic.classList.remove("on"); }
+    if ((kind === "wake" || kind === "listening") && state !== "speaking" && state !== "thinking"){ setState("listening"); }
+    if (state !== "speaking" && state !== "thinking") els.status.textContent = LOCAL_STATUS[kind] || els.status.textContent;
+    if (kind === "loading") caption("Loading my ears… the first time takes a little while, sir.", true);
+    if (kind === "waiting" && localState !== "off" && !els.caption.textContent) caption(cfg.wakeWord ? 'Say "Hey Jarvis", then your request.' : "I'm listening, sir.", true);
+  };
+}
+async function toggleLocalEars(){
+  connectLocalEars();
+  const on = localState !== "off" && localState !== "error";
+  try{
+    await fetch(api(on ? "/listen/stop" : "/listen/start"), {method:"POST", headers:{"Content-Type":"application/json"},
+      body: JSON.stringify({wake_word: cfg.wakeWord})});
+    if (on) localState = "off";
+  }catch(e){ caption("Couldn't reach the server to switch the microphone."); }
+}
+function muteLocal(muted){
+  if (!cfg.localMic || localState === "off") return;
+  fetch(api("/listen/mute"), {method:"POST", headers:{"Content-Type":"application/json"}, body: JSON.stringify({muted})}).catch(()=>{});
+}
 
 // ---------- TTS (voice) ----------
 // Each sentence starts fetching its audio as soon as it is queued (one request at a time,
@@ -413,7 +465,8 @@ function voiceFailed(e){
   setTimeout(()=>{ if (serverVoiceOk === false) serverVoiceOk = null; }, 60000);
 }
 async function playNext(){
-  if (!speakQueue.length){ speaking=false; speakingViaBuffer=false; onSpeechDone(); return; }
+  if (!speakQueue.length){ speaking=false; speakingViaBuffer=false; setTimeout(()=>muteLocal(false), 300); onSpeechDone(); return; }
+  if (!speaking) muteLocal(true);   // don't let him hear himself
   speaking = true; setState("speaking");
   const item = speakQueue.shift();
   if (item.audio){
@@ -464,22 +517,23 @@ let replyFinished = true;
 function onSpeechDone(){
   if (!replyFinished) return;
   setState("idle");
-  if (cfg.handsFree) setTimeout(startListening, 350);
+  if (cfg.handsFree && !cfg.localMic) setTimeout(startListening, 350);
 }
 function sentences(text){
   return (text.match(/[^.!?…]+[.!?…]+["')\]]*|[^.!?…]+$/g) || [text]).map(x=>x.trim()).filter(Boolean);
 }
 
-// ---------- brain (JARVIS-X /chat: tools, memory and audit log all apply) ----------
+// ---------- brain (JARVIS-X /chat/stream: tools, memory, approvals and audit log all apply) ----------
 let abortCtl = null;
 async function handleUser(text){
+  hideApproval();
   addLog("you", text); caption(text, true);
   setState("thinking"); replyFinished = false;
-  const started = performance.now();
+  const started = performance.now(); let first = true, said = "";
   const line = addLog("j", "…");
   abortCtl = new AbortController();
   try{
-    const res = await fetch(api("/chat"), {
+    const res = await fetch(api("/chat/stream"), {
       method:"POST", headers:{"Content-Type":"application/json"}, signal:abortCtl.signal,
       body: JSON.stringify({message:text.slice(0,4000), session:SESSION})
     });
@@ -488,17 +542,38 @@ async function handleUser(text){
       try{ detail = (await res.json()).detail || detail; }catch(_){}
       throw Object.assign(new Error(detail), {fromServer:true});
     }
-    const reply = ((await res.json()).reply || "").trim();
-    els.rLat.textContent = Math.round(performance.now()-started)+" ms";
-    els.rModel.textContent = "ONLINE";
-    line.lastChild.textContent = reply; caption(reply);
-    els.log.scrollTop = els.log.scrollHeight;
+    const reader = res.body.getReader(), dec = new TextDecoder(); let buf = "";
+    while (true){
+      const {value, done} = await reader.read(); if (done) break;
+      buf += dec.decode(value, {stream:true});
+      let nl;
+      while ((nl = buf.indexOf("\n")) >= 0){
+        const raw = buf.slice(0, nl).trim(); buf = buf.slice(nl+1); if (!raw) continue;
+        const ev = JSON.parse(raw);
+        if (ev.type === "status"){
+          els.status.textContent = ev.text.toUpperCase() + "…";
+          if (!said) caption(ev.text + "…", true);
+        } else if (ev.type === "sentence"){
+          if (first){ els.rLat.textContent = Math.round(performance.now()-started)+" ms"; first = false; }
+          said = said ? said + " " + ev.text : ev.text;
+          line.lastChild.textContent = said; caption(said);
+          els.log.scrollTop = els.log.scrollHeight;
+          enqueueSpeech(ev.text);
+        } else if (ev.type === "done"){
+          els.rModel.textContent = "ONLINE";
+          if (!said){ line.lastChild.textContent = ev.reply; caption(ev.reply); }
+          if (ev.approval) showApproval(ev.approval);
+        } else if (ev.type === "error"){
+          throw Object.assign(new Error(ev.detail), {fromServer:true});
+        }
+      }
+    }
     replyFinished = true;
-    sentences(reply).forEach(enqueueSpeech);
+    if (state === "thinking") setState("idle");
     if (!speaking && !speakQueue.length) onSpeechDone();
   }catch(e){
     replyFinished = true;
-    if (e.name === "AbortError") { line.lastChild.textContent = "(stopped)"; setState("idle"); return; }
+    if (e.name === "AbortError") { line.lastChild.textContent = said || "(stopped)"; setState("idle"); return; }
     console.error(e);
     const msg = e.fromServer
       ? "My core reports a fault, sir. " + e.message
@@ -507,6 +582,13 @@ async function handleUser(text){
     els.rModel.textContent = e.fromServer ? "FAULT" : "OFFLINE";
   }
 }
+
+// ---------- approvals: risky actions wait for sir's yes ----------
+function showApproval(a){
+  els.approval.querySelector("span").textContent = "Approve: " + a.summary + "?";
+  els.approval.classList.add("open");
+}
+function hideApproval(){ els.approval.classList.remove("open"); }
 
 // ---------- reminders: the server says when one goes off, Jarvis says it aloud ----------
 async function checkReminders(){
@@ -530,9 +612,11 @@ els.text.addEventListener("keydown", e => {
     handleUser(v);
   }
 });
-els.mic.addEventListener("click", () => recActive ? stopListening() : startListening());
+els.mic.addEventListener("click", () => cfg.localMic ? toggleLocalEars() : (recActive ? stopListening() : startListening()));
 els.hands.addEventListener("click", () => { cfg.handsFree=!cfg.handsFree; saveCfg(); els.hands.classList.toggle("on", cfg.handsFree); if (cfg.handsFree && state==="idle") startListening(); });
 els.set.addEventListener("click", () => els.settings.classList.toggle("open"));
+$("approveBtn").addEventListener("click", () => { hideApproval(); handleUser("yes"); });
+$("denyBtn").addEventListener("click", () => { hideApproval(); handleUser("no"); });
 
 let spaceDown = false;
 addEventListener("keydown", e => {
@@ -550,6 +634,13 @@ $("s-clear").onclick = async () => {
 // settings bindings
 $("s-server").value = cfg.server;
 $("s-server").onchange = e => { cfg.server = e.target.value.trim(); saveCfg(); boot(); };
+$("s-localmic").checked = cfg.localMic;
+$("s-localmic").onchange = e => { cfg.localMic = e.target.checked; saveCfg();
+  if (!cfg.localMic && localSource){ fetch(api("/listen/stop"), {method:"POST"}).catch(()=>{}); localSource.close(); localSource = null; localState = "off"; }
+  els.rInput.textContent = cfg.localMic ? "LOCAL · OFF" : (SR ? "WEB SPEECH" : "TEXT ONLY"); };
+$("s-wakeword").checked = cfg.wakeWord;
+$("s-wakeword").onchange = async e => { cfg.wakeWord = e.target.checked; saveCfg();
+  if (cfg.localMic && localState !== "off"){ await fetch(api("/listen/stop"), {method:"POST"}); localState = "off"; toggleLocalEars(); } };
 $("s-servervoice").checked = cfg.serverVoice;
 $("s-servervoice").onchange = e => { cfg.serverVoice = e.target.checked; serverVoiceOk = null; saveCfg(); };
 els.hands.classList.toggle("on", cfg.handsFree);
@@ -575,6 +666,7 @@ async function boot(){
     caption(warn ? `Online, sir. Note: ${warn.detail}.` : "All systems online. Press the microphone or hold Space, sir.");
   }
   els.rVoice.textContent = cfg.serverVoice ? "KOKORO · BM_GEORGE" : "BROWSER VOICE";
+  if (cfg.localMic){ els.rInput.textContent = "LOCAL · OFF"; connectLocalEars(); }
 }
 boot();
 </script>

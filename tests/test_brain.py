@@ -31,7 +31,8 @@ def script(monkeypatch, *responses):
 
     def fake_chat(**kwargs):
         seen.append([m if isinstance(m, dict) else {"role": "assistant"} for m in kwargs["messages"]])
-        return queue.pop(0)
+        response = queue.pop(0)
+        return iter([response]) if kwargs.get("stream") else response
 
     monkeypatch.setattr(brain, "chat", fake_chat)
     return seen
@@ -44,9 +45,9 @@ def test_plain_reply_is_saved_to_history(monkeypatch):
 
 
 def test_tool_result_is_fed_back_to_the_model(monkeypatch):
-    seen = script(monkeypatch, call("create_note", title="t", content="c"), say("Saved, sir."))
-    assert brain.respond("save a note", "s") == "Saved, sir."
-    assert seen[1][-1] == {"role": "tool", "tool_name": "create_note", "content": "Saved note 't.txt'."}
+    seen = script(monkeypatch, call("search_notes", query="zebra"), say("Nothing found, sir."))
+    assert brain.respond("find my zebra note", "s") == "Nothing found, sir."
+    assert seen[1][-1] == {"role": "tool", "tool_name": "search_notes", "content": "No notes matched."}
 
 
 def test_false_memory_claim_is_caught_and_fixed(monkeypatch):
