@@ -31,7 +31,8 @@ def script(monkeypatch, *responses):
 
     def fake_chat(**kwargs):
         seen.append([m if isinstance(m, dict) else {"role": "assistant"} for m in kwargs["messages"]])
-        return queue.pop(0)
+        response = queue.pop(0)
+        return iter([response]) if kwargs.get("stream") else response
 
     monkeypatch.setattr(brain, "chat", fake_chat)
     return seen

@@ -1,11 +1,12 @@
 """JARVIS-X web API. Start with:  uvicorn main:app --reload"""
 import io
+import json
 import os
 import threading
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, HTTPException
-from fastapi.responses import FileResponse, Response
+from fastapi.responses import FileResponse, Response, StreamingResponse
 from pydantic import BaseModel, Field
 
 import brain
@@ -89,6 +90,23 @@ def talk(request: ChatRequest):
     except Exception as exc:
         # 503 = the brain is unavailable; the detail tells the HUD exactly why.
         raise HTTPException(status_code=503, detail=explain(exc)) from exc
+
+
+@app.post("/chat/stream")
+def talk_stream(request: ChatRequest):
+    """Same as /chat, streamed as one JSON object per line: status (which tool he's using),
+    sentence (speak this now), then done (with any action waiting for approval) or error."""
+
+    def events():
+        try:
+            for event in brain.respond_events(request.message, request.session):
+                if event["type"] == "done":
+                    event["approval"] = approvals.pending(request.session)
+                yield json.dumps(event) + "\n"
+        except Exception as exc:
+            yield json.dumps({"type": "error", "detail": explain(exc)}) + "\n"
+
+    return StreamingResponse(events(), media_type="application/x-ndjson")
 
 
 @app.post("/speak")

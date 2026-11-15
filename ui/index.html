@@ -55,6 +55,11 @@
   .settings .row input{width:auto}
   .settings .note{color:var(--dim);margin-top:12px;font-size:11px;line-height:1.45}
 
+  .approval{position:absolute;left:50%;bottom:196px;transform:translateX(-50%);display:none;gap:10px;align-items:center;
+    background:rgba(4,16,34,.9);border:1px solid var(--c1);padding:8px 10px 8px 16px;font-size:13px;color:#d9f4ff;
+    box-shadow:0 0 24px rgba(56,200,255,.25);white-space:nowrap}
+  .approval.open{display:flex}
+  .approval .btn{height:34px}
   .hint{position:absolute;left:50%;bottom:12px;transform:translateX(-50%);font-family:var(--mono);font-size:9px;letter-spacing:.3em;color:rgba(120,200,255,.3)}
   @media (max-width:900px){.readout,.log{display:none}}
 </style>
@@ -80,6 +85,8 @@
 
   <div class="status" id="status">INITIALISING</div>
   <div class="caption" id="caption"></div>
+  <div class="approval" id="approval"><span></span>
+    <button class="btn" id="approveBtn">APPROVE</button><button class="btn" id="denyBtn">DENY</button></div>
 
   <div class="dock">
     <button class="btn" id="micBtn" title="Talk (hold Space)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="3" width="6" height="12" rx="3"/><path d="M5 11a7 7 0 0 0 14 0M12 18v3"/></svg></button>
@@ -124,7 +131,7 @@ const SESSION = "hud";   // conversation history for the HUD is kept server-side
 const $ = id => document.getElementById(id);
 const els = {
   status:$("status"), caption:$("caption"), log:$("log"), text:$("text"),
-  mic:$("micBtn"), hands:$("handsBtn"), set:$("setBtn"), settings:$("settings"),
+  mic:$("micBtn"), approval:$("approval"), hands:$("handsBtn"), set:$("setBtn"), settings:$("settings"),
   rModel:$("r-model"), rVoice:$("r-voice"), rInput:$("r-input"), rLat:$("r-lat"), rLevel:$("r-level"), rAct:$("r-act")
 };
 
@@ -470,16 +477,17 @@ function sentences(text){
   return (text.match(/[^.!?…]+[.!?…]+["')\]]*|[^.!?…]+$/g) || [text]).map(x=>x.trim()).filter(Boolean);
 }
 
-// ---------- brain (JARVIS-X /chat: tools, memory and audit log all apply) ----------
+// ---------- brain (JARVIS-X /chat/stream: tools, memory, approvals and audit log all apply) ----------
 let abortCtl = null;
 async function handleUser(text){
+  hideApproval();
   addLog("you", text); caption(text, true);
   setState("thinking"); replyFinished = false;
-  const started = performance.now();
+  const started = performance.now(); let first = true, said = "";
   const line = addLog("j", "…");
   abortCtl = new AbortController();
   try{
-    const res = await fetch(api("/chat"), {
+    const res = await fetch(api("/chat/stream"), {
       method:"POST", headers:{"Content-Type":"application/json"}, signal:abortCtl.signal,
       body: JSON.stringify({message:text.slice(0,4000), session:SESSION})
     });
@@ -488,17 +496,38 @@ async function handleUser(text){
       try{ detail = (await res.json()).detail || detail; }catch(_){}
       throw Object.assign(new Error(detail), {fromServer:true});
     }
-    const reply = ((await res.json()).reply || "").trim();
-    els.rLat.textContent = Math.round(performance.now()-started)+" ms";
-    els.rModel.textContent = "ONLINE";
-    line.lastChild.textContent = reply; caption(reply);
-    els.log.scrollTop = els.log.scrollHeight;
+    const reader = res.body.getReader(), dec = new TextDecoder(); let buf = "";
+    while (true){
+      const {value, done} = await reader.read(); if (done) break;
+      buf += dec.decode(value, {stream:true});
+      let nl;
+      while ((nl = buf.indexOf("\n")) >= 0){
+        const raw = buf.slice(0, nl).trim(); buf = buf.slice(nl+1); if (!raw) continue;
+        const ev = JSON.parse(raw);
+        if (ev.type === "status"){
+          els.status.textContent = ev.text.toUpperCase() + "…";
+          if (!said) caption(ev.text + "…", true);
+        } else if (ev.type === "sentence"){
+          if (first){ els.rLat.textContent = Math.round(performance.now()-started)+" ms"; first = false; }
+          said = said ? said + " " + ev.text : ev.text;
+          line.lastChild.textContent = said; caption(said);
+          els.log.scrollTop = els.log.scrollHeight;
+          enqueueSpeech(ev.text);
+        } else if (ev.type === "done"){
+          els.rModel.textContent = "ONLINE";
+          if (!said){ line.lastChild.textContent = ev.reply; caption(ev.reply); }
+          if (ev.approval) showApproval(ev.approval);
+        } else if (ev.type === "error"){
+          throw Object.assign(new Error(ev.detail), {fromServer:true});
+        }
+      }
+    }
     replyFinished = true;
-    sentences(reply).forEach(enqueueSpeech);
+    if (state === "thinking") setState("idle");
     if (!speaking && !speakQueue.length) onSpeechDone();
   }catch(e){
     replyFinished = true;
-    if (e.name === "AbortError") { line.lastChild.textContent = "(stopped)"; setState("idle"); return; }
+    if (e.name === "AbortError") { line.lastChild.textContent = said || "(stopped)"; setState("idle"); return; }
     console.error(e);
     const msg = e.fromServer
       ? "My core reports a fault, sir. " + e.message
@@ -507,6 +536,13 @@ async function handleUser(text){
     els.rModel.textContent = e.fromServer ? "FAULT" : "OFFLINE";
   }
 }
+
+// ---------- approvals: risky actions wait for sir's yes ----------
+function showApproval(a){
+  els.approval.querySelector("span").textContent = "Approve: " + a.summary + "?";
+  els.approval.classList.add("open");
+}
+function hideApproval(){ els.approval.classList.remove("open"); }
 
 // ---------- reminders: the server says when one goes off, Jarvis says it aloud ----------
 async function checkReminders(){
@@ -533,6 +569,8 @@ els.text.addEventListener("keydown", e => {
 els.mic.addEventListener("click", () => recActive ? stopListening() : startListening());
 els.hands.addEventListener("click", () => { cfg.handsFree=!cfg.handsFree; saveCfg(); els.hands.classList.toggle("on", cfg.handsFree); if (cfg.handsFree && state==="idle") startListening(); });
 els.set.addEventListener("click", () => els.settings.classList.toggle("open"));
+$("approveBtn").addEventListener("click", () => { hideApproval(); handleUser("yes"); });
+$("denyBtn").addEventListener("click", () => { hideApproval(); handleUser("no"); });
 
 let spaceDown = false;
 addEventListener("keydown", e => {
