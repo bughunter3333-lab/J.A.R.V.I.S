@@ -103,3 +103,13 @@ def test_empty_model_reply_is_never_silent(monkeypatch, tmp_path):
     events = list(brain.respond_events("Goats.", "s"))
     assert events[-1] == {"type": "done", "reply": brain.EMPTY_REPLY}
     assert {"type": "sentence", "text": brain.EMPTY_REPLY} in events
+
+
+def test_presence_filler_is_never_streamed(monkeypatch):
+    import brain
+    from types import SimpleNamespace
+    monkeypatch.setattr(brain, "chat", lambda **kw: iter(
+        [SimpleNamespace(message=SimpleNamespace(content="I am here, sir.", tool_calls=None))]))
+    events = list(brain.respond_events("Stop", "filler"))
+    assert [e["text"] for e in events if e["type"] == "sentence"] == [brain.ACKNOWLEDGE]
+    assert events[-1] == {"type": "done", "reply": brain.ACKNOWLEDGE}

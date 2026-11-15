@@ -130,3 +130,130 @@ def test_question_about_memory_is_not_forced_to_save(monkeypatch):
     seen = script(monkeypatch, say("You prefer tea, sir."))
     assert brain.respond("do you remember what I like to drink?", "s") == "You prefer tea, sir."
     assert len(seen) == 1
+
+
+def test_promised_action_without_a_tool_call_is_retried(monkeypatch):
+    seen = script(monkeypatch, say("I shall adjust the volume, sir."),
+                  call("get_current_time"), say("Turned down, sir."))
+    reply = brain.respond("It's way too loud", "s")
+    assert seen[1][-1]["content"] == brain.ACTION_NUDGE
+    assert reply == "I shall adjust the volume, sir. Turned down, sir."  # a space between rounds
+
+
+def test_promise_after_a_tool_call_does_not_repeat_the_action(monkeypatch):
+    seen = script(monkeypatch, call("pc_control", action="volume_down"),
+                  say("Apologies, sir. I shall adjust the volume immediately."))
+    brain.respond("It's way too loud", "s")
+    assert len(seen) == 2  # no second volume_down
+
+
+@pytest.mark.parametrize("filler", ["I am here, sir.", "I'm here, sir", "Yes, sir?", "At your service, sir.",
+                                    "Is there something I can assist you with?",
+                                    "I am here, sir. Is there something I can assist you with?"])
+def test_presence_filler_alone_becomes_an_acknowledgement(monkeypatch, filler):
+    script(monkeypatch, say(filler))
+    assert brain.respond("Stop", "s") == brain.ACKNOWLEDGE
+
+
+def test_promise_is_only_retried_once(monkeypatch):
+    seen = script(monkeypatch, say("Let me check that, sir."), say("Let me check that, sir."))
+    brain.respond("hmm", "s")
+    assert len(seen) == 2
+
+
+@pytest.mark.parametrize("reply,expected", [
+    ("I cannot reach the internet, sir. Would you like me to suggest a reliable site?",
+     "I cannot reach the internet, sir."),
+    ("Would you like me to suggest something?", "Would you like me to suggest something?"),
+    ("Shall I set a reminder for it?", "Shall I set a reminder for it?"),
+    ("The volume has been reduced, sir. Let me know if it requires further adjustment.",
+     "The volume has been reduced, sir."),
+    ("Done, sir. Feel free to ask again.", "Done, sir."),
+])
+def test_trailing_offers_are_dropped(reply, expected):
+    assert brain.strip_stock_offer(reply) == expected
+
+
+def test_copied_example_line_is_retried_before_it_is_spoken(monkeypatch):
+    example = next(b for a, b in config.VOICE_EXAMPLE_PAIRS if brain.copies_example(b.split(". ")[0] + "."))
+    seen = script(monkeypatch, say(example), say("Goats, sir. Sturdy animals."))
+    events = list(brain.respond_events("Goats.", "s"))
+    spoken = [e["text"] for e in events if e["type"] == "sentence"]
+    assert spoken == ["Goats, sir.", "Sturdy animals."]
+    assert seen[1][-1]["content"] == brain.PARROT_NUDGE.format(message="Goats.")
+    assert all(m.get("content") != example for m in seen[1])  # the copy is not kept in history
+
+
+def test_one_sentence_copy_is_caught_too(monkeypatch):
+    seen = script(monkeypatch, say("A gatekeeper for your network, sir."), say("Goats, sir."))
+    monkeypatch.setattr(brain, "EXAMPLE_LINES", {brain._words("A gatekeeper for your network, sir.")})
+    assert brain.respond("Goats.", "s") == "Goats, sir."
+    assert len(seen) == 2
+
+
+def test_copied_example_twice_is_let_through(monkeypatch):
+    example = next(b for a, b in config.VOICE_EXAMPLE_PAIRS if brain.copies_example(b.split(". ")[0] + "."))
+    seen = script(monkeypatch, say(example), say(example))
+    assert brain.respond("Goats.", "s")
+    assert len(seen) == 2
+
+
+def test_short_acknowledgement_examples_may_be_reused(monkeypatch):
+    seen = script(monkeypatch, say("Very good, sir."))
+    assert brain.respond("Okay", "s") == "Very good, sir."
+    assert len(seen) == 1
+
+
+@pytest.mark.parametrize("spelled", [
+    '<untrusted>\n{"name": "get_current_time", "arguments": {}}\n</untrusted>',
+    '```json\n{"name": "get_current_time", "arguments": {}}\n```',
+    '{"name": "get_current_time", "arguments": {}}',
+])
+def test_tool_call_written_as_text_is_run_not_spoken(monkeypatch, spelled):
+    seen = script(monkeypatch, say(spelled), say("It is noon, sir."))
+    events = list(brain.respond_events("what time is it", "s"))
+    assert [e["text"] for e in events if e["type"] == "sentence"] == ["It is noon, sir."]
+    assert seen[1][-1]["role"] == "tool" and seen[1][-1]["tool_name"] == "get_current_time"
+
+
+def test_json_that_is_not_a_tool_is_left_as_a_reply(monkeypatch):
+    script(monkeypatch, say('{"name": "rm_rf", "arguments": {}}'))
+    assert brain.tool_call_in_text('{"name": "rm_rf", "arguments": {}}') is None
+    assert brain.tool_call_in_text("The time is noon, sir.") is None
+
+
+def test_rhetorical_remind_does_not_force_a_tool(monkeypatch):
+    seen = script(monkeypatch, say("Your call, sir, but I shall remind you that study pays later."))
+    brain.respond("Should I study or play games tonight?", "s")
+    assert len(seen) == 1  # no nudge, so no reminder gets set
+
+
+@pytest.mark.parametrize("reply,kept", [
+    ("I am here to assist, sir. If there is something you need, please let me know.",
+     brain.ACKNOWLEDGE),
+    ("Clean and readable, sir. If you ever need a second opinion, I am here to help.",
+     "Clean and readable, sir."),
+    ("No humour module, sir. But if you'd like a story, I'd be happy to tell one.",
+     "No humour module, sir."),
+])
+def test_sign_off_sentences_after_an_answer_are_dropped(monkeypatch, reply, kept):
+    script(monkeypatch, say(reply))
+    assert brain.respond("hi", "s") == kept
+
+
+def test_several_tool_calls_written_as_text_all_run(monkeypatch):
+    spelled = ('<untrusted>\n{"name": "get_current_time", "arguments": {}}\n</untrusted>\n'
+               '<untrusted>\n{"name": "get_current_time", "arguments": {}}\n</untrusted>')
+    msg = brain.tool_call_in_text(spelled)
+    assert [c.function.name for c in msg.tool_calls] == ["get_current_time", "get_current_time"]
+    assert brain.tool_call_in_text('{"name": "get_current_time", "arguments": {}} and some words') is None
+
+
+def test_speaker_label_is_removed(monkeypatch):
+    script(monkeypatch, say("You: A SOC analyst watches for attacks, sir."))
+    assert brain.respond("What is a SOC analyst?", "s") == "A SOC analyst watches for attacks, sir."
+
+
+def test_purpose_statement_alone_is_filler(monkeypatch):
+    script(monkeypatch, say("I am here to assist, sir."))
+    assert brain.respond("You're useless sometimes", "s") == brain.ACKNOWLEDGE

@@ -143,7 +143,8 @@ def read_webpage(url: str) -> str:
 
 
 def get_weather(place: str = "") -> str:
-    """Get the current weather and today's and tomorrow's forecast.
+    """Get the current weather and today's and tomorrow's forecast. Always call this for any
+    question about the weather, temperature, rain, wind or what it's like outside, however casual.
 
     Args:
         place: City or town name. Leave empty for sir's home city.
@@ -213,7 +214,7 @@ def calculate(expression: str) -> str:
 
 def system_status() -> str:
     """Live readings from this PC: CPU use, RAM / memory use, free disk space, battery level and GPU use.
-    Always call this for questions about the computer's RAM, memory, CPU, storage, battery or GPU, never guess them."""
+    Always call this for questions about the computer's RAM, memory, CPU, storage, battery or GPU, never guess them. Never use it for the weather."""
     import psutil
 
     parts = [f"CPU {psutil.cpu_percent(interval=0.5):.0f}%"]
