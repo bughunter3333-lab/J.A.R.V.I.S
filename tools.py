@@ -12,6 +12,7 @@ import operator
 import re
 import shutil
 import subprocess
+import sys
 from datetime import datetime
 from pathlib import Path
 
@@ -416,12 +417,88 @@ def clipboard(action: str, text: str = "") -> str:
     raise ToolRefused('The action must be "read" or "write".')
 
 
+# ---------------------------------------------------------------- about Jarvis himself
+
+STARTED_AT = datetime.now()  # when this server process started
+
+
+def _git(*args: str) -> str:
+    try:
+        out = subprocess.run(["git", "-C", str(config.BASE_DIR), *args], capture_output=True,
+                             text=True, timeout=5, creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
+        return out.stdout.strip() if out.returncode == 0 else ""
+    except (OSError, subprocess.SubprocessError):
+        return ""
+
+
+def _local(dt: datetime) -> datetime:
+    """Convert to this PC's local time and drop the timezone, so all maths is like-for-like."""
+    return dt.astimezone().replace(tzinfo=None) if dt.tzinfo else dt
+
+
+def build_time() -> tuple[datetime | None, str]:
+    """When Jarvis was built, and where that answer came from."""
+    if getattr(config, "BUILT_AT", None):
+        return datetime.fromisoformat(str(config.BUILT_AT)), "the BUILT_AT setting in config.py"
+    candidates = []
+    if sys.platform == "win32":  # on Windows, st_ctime is when the folder was created
+        candidates.append((datetime.fromtimestamp(config.BASE_DIR.stat().st_ctime),
+                           f"the date the {config.BASE_DIR} folder was created"))
+    first = _git("rev-list", "--max-parents=0", "HEAD").splitlines()
+    if first:
+        stamp = _git("show", "-s", "--format=%aI", first[-1])
+        if stamp:
+            candidates.append((_local(datetime.fromisoformat(stamp)), "the first git commit"))
+    if not candidates:
+        return None, ""
+    return min(candidates, key=lambda c: c[0])
+
+
+def exact_duration(start: datetime, end: datetime) -> str:
+    """'2 days, 3 hours, 12 minutes and 5 seconds' (worked out in code, not by the model)."""
+    seconds = int((end - start).total_seconds())
+    if seconds < 0:
+        return "in the future (check the clock or the BUILT_AT setting)"
+    parts = []
+    for name, size in (("day", 86400), ("hour", 3600), ("minute", 60), ("second", 1)):
+        value, seconds = divmod(seconds, size)
+        if value or (name == "second" and not parts):
+            parts.append(f"{value} {name}{'s' if value != 1 else ''}")
+    return parts[0] if len(parts) == 1 else ", ".join(parts[:-1]) + " and " + parts[-1]
+
+
+def _stamp(dt: datetime) -> str:
+    return dt.strftime("%A %d %B %Y at %I:%M:%S %p").replace(" 0", " ")
+
+
+def about_me() -> str:
+    """Facts about yourself: exactly when you were built and how long ago, your version, and how long you have been running."""
+    now = datetime.now()
+    lines = []
+    built, source = build_time()
+    if built:
+        lines.append(f"Built on {_stamp(built)} (from {source}), which was exactly "
+                     f"{exact_duration(built, now)} ago.")
+    else:
+        lines.append("I can't tell when I was built: set BUILT_AT in config.py.")
+    head = _git("log", "-1", "--format=%h|%aI|%s")
+    if head:
+        sha, when, subject = head.split("|", 2)
+        commits = _git("rev-list", "--count", "HEAD")
+        lines.append(f"Current version: {sha}, updated {exact_duration(_local(datetime.fromisoformat(when)), now)} "
+                     f"ago ({subject}); {commits} changes in total.")
+    lines.append(f"Running since {_stamp(STARTED_AT)}, for {exact_duration(STARTED_AT, now)}.")
+    lines.append(f"Mind: {config.MODEL} via Ollama. Voice: Kokoro {config.TTS_VOICE}. "
+                 f"Tools: {len(TOOLS)}. Right now it is {_stamp(now)}.")
+    return " ".join(lines)
+
+
 TOOLS = {
     fn.__name__: fn
     for fn in (
         get_current_time, open_app, create_note, search_notes, remember_fact,
         web_search, read_webpage, get_weather, calculate, system_status,
-        reminder, pc_control, convert, look_up, files, clipboard,
+        reminder, pc_control, convert, look_up, files, clipboard, about_me,
     )
 }
 

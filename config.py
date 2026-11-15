@@ -8,6 +8,11 @@ DB_PATH = DATA_DIR / "jarvis.db"
 AUDIO_DIR = DATA_DIR / "audio"
 
 MODEL = "qwen3:8b"
+
+# When Jarvis was "born". Leave as None to work it out automatically (the date the
+# project folder was created, or the first git commit). Or set the exact moment, e.g.
+# BUILT_AT = "2026-11-13 21:30:00"
+BUILT_AT = None
 HISTORY_LIMIT = 12  # how many past messages are sent back to the model
 MAX_TOOL_ROUNDS = 4  # stops the model looping on tool calls forever
 
@@ -63,6 +68,9 @@ SYSTEM_PROMPT = (
     "search notes. For anything current or that you are not sure of (news, prices, "
     "people, events, facts), use web_search, and read_webpage if the snippets are not "
     "enough; say which site the answer came from, and never invent a source. Use "
+    "about_me whenever sir asks when you were built, how old you are, how long ago "
+    "you were made, your version or how long you have been running, and repeat its "
+    "numbers exactly, "
     "get_weather for weather, calculate for any arithmetic, system_status for "
     "questions about the computer, reminder for reminders and timers, pc_control for "
     "volume, music, locking the screen or opening a website, convert for currencies and "
