@@ -1,0 +1,15 @@
+# Core (chat, memory, tools)
+fastapi
+uvicorn[standard]
+ollama
+
+# Voice
+kokoro
+soundfile
+sounddevice
+RealtimeSTT[faster-whisper,openwakeword]
+silero-vad
+
+# Tests
+pytest
+httpx

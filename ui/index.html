@@ -68,6 +68,7 @@
 
   <div class="readout">
     <div>CORE &nbsp;&nbsp;&nbsp;<b id="r-model">—</b></div>
+    <div>BRAIN &nbsp;&nbsp;<b>QWEN3:8B</b></div>
     <div>VOICE &nbsp;&nbsp;<b id="r-voice">—</b></div>
     <div>INPUT &nbsp;&nbsp;<b id="r-input">—</b></div>
     <div>LATENCY <b id="r-lat">—</b></div>
@@ -88,12 +89,9 @@
   </div>
 
   <div class="settings" id="settings">
-    <label>OLLAMA URL</label><input id="s-ollama">
-    <label>MODEL</label><input id="s-model">
-    <label>KOKORO TTS URL (OpenAI-compatible)</label><input id="s-kokoro">
-    <label>KOKORO VOICE</label><input id="s-voice">
-    <div class="row"><input type="checkbox" id="s-usekokoro"> Use Kokoro (else browser voice)</div>
-    <div class="note">Kokoro unreachable → falls back to the browser's built-in voice automatically.</div>
+    <label>JARVIS-X SERVER (blank = this page's server)</label><input id="s-server" placeholder="http://127.0.0.1:8000">
+    <div class="row"><input type="checkbox" id="s-servervoice"> Use Jarvis's Kokoro voice (else browser voice)</div>
+    <div class="note">Replies go through /chat, so tools, memory and the audit log all apply. If /speak fails, the browser voice takes over automatically.</div>
   </div>
 
   <div class="hint">HOLD SPACE TO TALK · ENTER TO SEND · ESC TO STOP</div>
@@ -102,30 +100,23 @@
 <script>
 /* ============================================================
    JARVIS-X interface — blue holographic core
-   Brain: Ollama /api/chat (streaming)
-   Ears:  Web Speech API (Chrome) — swap for RealtimeSTT later
-   Voice: Kokoro-FastAPI /v1/audio/speech, fallback speechSynthesis
+   Served by main.py at /hud.
+   Brain: POST /chat  (brain.py — tools, memory, audit log)
+   Voice: POST /speak (voice.py — Kokoro bm_george), fallback speechSynthesis
+   Ears:  Web Speech API (Chrome). For fully local listening use talk.py
    ============================================================ */
 
 // ---------- settings (persisted when storage is available) ----------
 const DEFAULTS = {
-  ollama: "http://localhost:11434",
-  model: "qwen3:8b",
-  kokoro: "http://localhost:8880",
-  voice: "bm_george",
-  useKokoro: true,
+  server: "",          // blank = same server that served this page (uvicorn main:app)
+  serverVoice: true,   // use /speak (Kokoro bm_george); falls back to the browser voice
   handsFree: false
 };
-function loadCfg(){ try{ return {...DEFAULTS, ...JSON.parse(localStorage.getItem("jarvis.cfg")||"{}")}; }catch(e){ return {...DEFAULTS}; } }
-function saveCfg(){ try{ localStorage.setItem("jarvis.cfg", JSON.stringify(cfg)); }catch(e){} }
+function loadCfg(){ try{ return {...DEFAULTS, ...JSON.parse(localStorage.getItem("jarvis.hud")||"{}")}; }catch(e){ return {...DEFAULTS}; } }
+function saveCfg(){ try{ localStorage.setItem("jarvis.hud", JSON.stringify(cfg)); }catch(e){} }
 const cfg = loadCfg();
-
-const SYSTEM_PROMPT = `You are J.A.R.V.I.S., a personal AI assistant running locally on the user's Windows PC as part of the JARVIS-X project.
-Personality: calm, precise, quietly witty, British butler manner. Address the user as "sir" occasionally, not every sentence.
-Your replies are spoken aloud, so keep them short (one to three sentences unless asked for detail), use plain sentences, and never use markdown, lists, code blocks or emoji.
-If you are not certain of something, say so plainly. Never invent facts.`;
-
-const history = [{role:"system", content:SYSTEM_PROMPT}];
+const api = path => (cfg.server || "").replace(/\/$/,"") + path;
+const SESSION = "hud";   // conversation history for the HUD is kept server-side under this name
 
 // ---------- DOM ----------
 const $ = id => document.getElementById(id);
@@ -387,38 +378,44 @@ async function startListening(){
 function stopListening(){ if (rec && recActive){ try{rec.stop();}catch(_){} } }
 
 // ---------- TTS (voice) ----------
+// Each sentence starts fetching its audio as soon as it is queued (one request at a time,
+// so Kokoro is never asked to do two things at once), and plays in order.
 let speakQueue = [], speaking = false, speakingViaBuffer = false, currentSrc = null, fakeTimer = null;
-let kokoroOk = null;   // null = untested
+let serverVoiceOk = null, lastFetch = Promise.resolve();
 
 function enqueueSpeech(text){
   text = text.replace(/[*_#`>]/g,"").trim();
   if (!text) return;
-  speakQueue.push(text);
+  const item = {text, audio:null};
+  if (cfg.serverVoice && serverVoiceOk !== false){
+    item.audio = lastFetch = lastFetch.catch(()=>{}).then(() => fetchVoice(text));
+    item.audio.catch(()=>{});   // handled when played
+  }
+  speakQueue.push(item);
   if (!speaking) playNext();
+}
+async function fetchVoice(text){
+  ensureAudio();
+  const res = await fetch(api("/speak"), {method:"POST", headers:{"Content-Type":"application/json"}, body:JSON.stringify({text})});
+  if (!res.ok) throw new Error("/speak HTTP "+res.status);
+  return actx.decodeAudioData(await res.arrayBuffer());
 }
 async function playNext(){
   if (!speakQueue.length){ speaking=false; speakingViaBuffer=false; onSpeechDone(); return; }
   speaking = true; setState("speaking");
-  const text = speakQueue.shift();
-  if (cfg.useKokoro && kokoroOk !== false){
-    try { await speakKokoro(text); kokoroOk = true; els.rVoice.textContent = "KOKORO · "+cfg.voice; return playNext(); }
-    catch(e){ console.warn("Kokoro failed, using browser voice:", e); kokoroOk = false; }
+  const item = speakQueue.shift();
+  if (item.audio){
+    try { await playBuffer(await item.audio); serverVoiceOk = true; els.rVoice.textContent = "KOKORO · BM_GEORGE"; return playNext(); }
+    catch(e){ console.warn("Server voice failed, using browser voice:", e); serverVoiceOk = false; }
   }
   els.rVoice.textContent = "BROWSER VOICE";
-  await speakBrowser(text);
+  await speakBrowser(item.text);
   playNext();
 }
-async function speakKokoro(text){
-  ensureAudio();
-  const res = await fetch(cfg.kokoro.replace(/\/$/,"")+"/v1/audio/speech", {
-    method:"POST", headers:{"Content-Type":"application/json"},
-    body: JSON.stringify({model:"kokoro", input:text, voice:cfg.voice, response_format:"mp3", speed:1.0})
-  });
-  if (!res.ok) throw new Error("HTTP "+res.status);
-  const buf = await actx.decodeAudioData(await res.arrayBuffer());
+function playBuffer(buf){
   return new Promise(resolve => {
     const src = actx.createBufferSource(); src.buffer = buf;
-    // route through analyser so the orb reacts to his voice
+    // route through the analyser so the core pulses with his voice
     if (micSource) { try{ micSource.disconnect(analyser); }catch(_){} }
     src.connect(analyser); analyser.connect(actx.destination);
     speakingViaBuffer = true; currentSrc = src;
@@ -453,62 +450,43 @@ function stopSpeaking(){
 }
 let replyFinished = true;
 function onSpeechDone(){
-  if (!replyFinished) return;          // more text still streaming in
+  if (!replyFinished) return;
   setState("idle");
   if (cfg.handsFree) setTimeout(startListening, 350);
 }
+function sentences(text){
+  return (text.match(/[^.!?…]+[.!?…]+["')\]]*|[^.!?…]+$/g) || [text]).map(x=>x.trim()).filter(Boolean);
+}
 
-// ---------- brain (Ollama, streaming) ----------
+// ---------- brain (JARVIS-X /chat: tools, memory and audit log all apply) ----------
 let abortCtl = null;
 async function handleUser(text){
   addLog("you", text); caption(text, true);
-  history.push({role:"user", content:text});
   setState("thinking"); replyFinished = false;
-  const started = performance.now(); let firstToken = null;
-  let full = "", pending = "", inThink = false;
-  const line = addLog("j", "");
+  const started = performance.now();
+  const line = addLog("j", "…");
   abortCtl = new AbortController();
   try{
-    const res = await fetch(cfg.ollama.replace(/\/$/,"")+"/api/chat", {
+    const res = await fetch(api("/chat"), {
       method:"POST", headers:{"Content-Type":"application/json"}, signal:abortCtl.signal,
-      body: JSON.stringify({model:cfg.model, messages:history.slice(-21), stream:true, think:false,
-                            options:{temperature:0.6}})
+      body: JSON.stringify({message:text.slice(0,4000), session:SESSION})
     });
-    if (!res.ok) throw new Error("Ollama HTTP "+res.status+" — "+(await res.text()).slice(0,160));
-    els.rModel.textContent = cfg.model.toUpperCase();
-    const reader = res.body.getReader(); const dec = new TextDecoder(); let buf="";
-    while (true){
-      const {value, done} = await reader.read(); if (done) break;
-      buf += dec.decode(value, {stream:true});
-      let nl; while ((nl = buf.indexOf("\n")) >= 0){
-        const ln = buf.slice(0,nl).trim(); buf = buf.slice(nl+1); if (!ln) continue;
-        let obj; try{ obj = JSON.parse(ln); }catch(_){ continue; }
-        let chunk = obj.message?.content || "";
-        // strip any <think>…</think> the model emits anyway
-        if (chunk.includes("<think>")) { inThink = true; chunk = chunk.split("<think>")[0]; }
-        if (inThink){ if (chunk.includes("</think>")||(obj.message?.content||"").includes("</think>")){ inThink=false; chunk=(obj.message.content.split("</think>")[1]||""); } else continue; }
-        if (!chunk) continue;
-        if (firstToken===null){ firstToken = performance.now(); els.rLat.textContent = Math.round(firstToken-started)+" ms"; }
-        full += chunk; pending += chunk;
-        line.lastChild.textContent = full.trimStart(); caption(full.trimStart());
-        els.log.scrollTop = els.log.scrollHeight;
-        // speak sentence by sentence for low latency
-        const m = pending.match(/^([\s\S]*?[.!?…])(\s+|$)([\s\S]*)$/);
-        if (m && m[1].trim().length > 12){ enqueueSpeech(m[1]); pending = m[3]; }
-      }
-    }
+    if (!res.ok) throw new Error("/chat HTTP "+res.status);
+    const reply = ((await res.json()).reply || "").trim();
+    els.rLat.textContent = Math.round(performance.now()-started)+" ms";
+    els.rModel.textContent = "ONLINE";
+    line.lastChild.textContent = reply; caption(reply);
+    els.log.scrollTop = els.log.scrollHeight;
     replyFinished = true;
-    if (pending.trim()) enqueueSpeech(pending);
-    history.push({role:"assistant", content:full.trim()});
+    sentences(reply).forEach(enqueueSpeech);
     if (!speaking && !speakQueue.length) onSpeechDone();
   }catch(e){
     replyFinished = true;
-    if (e.name === "AbortError") { setState("idle"); return; }
+    if (e.name === "AbortError") { line.lastChild.textContent = "(stopped)"; setState("idle"); return; }
     console.error(e);
-    const msg = "I can't reach my core, sir. Check that Ollama is running at "+cfg.ollama+" and that this page is opened from localhost.";
+    const msg = "I can't reach my core, sir. Is uvicorn running? Start it with: uvicorn main:app --reload";
     line.lastChild.textContent = msg; caption(msg); setState("offline");
     els.rModel.textContent = "OFFLINE";
-    history.pop();
   }
 }
 
@@ -532,10 +510,10 @@ addEventListener("keydown", e => {
 addEventListener("keyup", e => { if (e.code==="Space" && spaceDown){ spaceDown=false; } });
 
 // settings bindings
-const bind = (id,key,type="text") => { const el=$(id);
-  if (type==="check"){ el.checked=cfg[key]; el.onchange=()=>{cfg[key]=el.checked; kokoroOk=null; saveCfg();}; }
-  else { el.value=cfg[key]; el.onchange=()=>{cfg[key]=el.value.trim(); kokoroOk=null; saveCfg(); boot();}; } };
-bind("s-ollama","ollama"); bind("s-model","model"); bind("s-kokoro","kokoro"); bind("s-voice","voice"); bind("s-usekokoro","useKokoro","check");
+$("s-server").value = cfg.server;
+$("s-server").onchange = e => { cfg.server = e.target.value.trim(); saveCfg(); boot(); };
+$("s-servervoice").checked = cfg.serverVoice;
+$("s-servervoice").onchange = e => { cfg.serverVoice = e.target.checked; serverVoiceOk = null; saveCfg(); };
 els.hands.classList.toggle("on", cfg.handsFree);
 if ("speechSynthesis" in window) speechSynthesis.onvoiceschanged = ()=>{};
 
@@ -543,19 +521,15 @@ if ("speechSynthesis" in window) speechSynthesis.onvoiceschanged = ()=>{};
 async function boot(){
   setState("idle"); els.rModel.textContent = "CHECKING…";
   try{
-    const r = await fetch(cfg.ollama.replace(/\/$/,"")+"/api/tags");
-    const j = await r.json();
-    const have = (j.models||[]).map(m=>m.name);
-    if (!have.includes(cfg.model) && !have.includes(cfg.model+":latest")){
-      els.rModel.textContent = "MODEL MISSING"; caption(`Ollama is up, but ${cfg.model} isn't installed. Run: ollama pull ${cfg.model}`); return;
-    }
-    els.rModel.textContent = cfg.model.toUpperCase();
+    const j = await (await fetch(api("/"))).json();
+    if (j.status !== "online") throw new Error("unexpected status");
+    els.rModel.textContent = "ONLINE";
     caption("All systems online. Press the microphone or hold Space, sir.");
   }catch(e){
-    setState("offline"); els.rModel.textContent="OFFLINE";
-    caption("Ollama isn't answering at "+cfg.ollama+". Start it, then reload.");
+    setState("offline"); els.rModel.textContent = "OFFLINE";
+    caption("JARVIS-X isn't answering. Start it with uvicorn main:app --reload, then open http://127.0.0.1:8000/hud");
   }
-  els.rVoice.textContent = cfg.useKokoro ? "KOKORO · "+cfg.voice : "BROWSER VOICE";
+  els.rVoice.textContent = cfg.serverVoice ? "KOKORO · BM_GEORGE" : "BROWSER VOICE";
 }
 boot();
 </script>

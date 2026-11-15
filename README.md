@@ -1,48 +1,60 @@
-# J.A.R.V.I.S.
+# J.A.R.V.I.S
 
-JARVIS-X is a local AI assistant inspired by Tony Stark's J.A.R.V.I.S. It combines conversational AI, voice control, memory, tools and workflow automation, and it runs on your own PC with free, local models.
+JARVIS-X is an AI-powered personal operating system inspired by Tony Stark's J.A.R.V.I.S. It combines conversational AI, voice control, memory, autonomous agents, and workflow automation to help users code, manage projects, execute tasks, and interact with applications through natural language.
 
-## What works now
+Phase 1 runs fully locally: the language model runs on this PC through Ollama, so nothing leaves the machine.
 
-- **HUD interface** (`ui/index.html`): a blue holographic core that reacts while Jarvis listens, thinks and speaks.
-- **Brain:** Ollama running `qwen3:8b`, with streamed replies.
-- **Voice out:** Kokoro (`bm_george` British voice) through Kokoro-FastAPI. If it isn't running, the browser's built-in voice takes over.
-- **Voice in:** the browser's speech recognition (Chrome). This will be replaced by local RealtimeSTT.
+## Run it
 
-## Run it (Windows)
+```powershell
+cd D:\jarvis-x; .\.venv\Scripts\Activate.ps1; uvicorn main:app --reload
+```
 
-1. Make sure Ollama is running and the model is installed:
-   ```
-   ollama pull qwen3:8b
-   ```
-2. (Optional, for the proper voice) start Kokoro-FastAPI on the GPU:
-   ```
-   docker run --gpus all -p 8880:8880 ghcr.io/remsky/kokoro-fastapi-gpu:latest
-   ```
-3. Serve the interface from the `ui` folder:
-   ```
-   cd ui; python -m http.server 8000
-   ```
-4. Open http://localhost:8000 in Chrome. Hold **Space** to talk, **Enter** to send typed text, **Esc** to stop.
+Then open http://127.0.0.1:8000/docs and use **POST /chat**. **GET /audit** shows every tool call Jarvis made or refused.
 
-The page must be opened from `localhost`, not by double-clicking the file, or the microphone and Ollama calls won't work.
+## The HUD
 
-## Layout
+With the server running, open http://127.0.0.1:8000/hud in Chrome. It shows a blue holographic core that reacts while Jarvis listens, thinks and speaks.
+Hold **Space** (or click the mic) to talk, press **Enter** to send typed text, and **Esc** to stop him. **AUTO** keeps listening after each reply.
+Replies go through `/chat`, so tools, memory and the audit log all apply. His voice comes from `/speak` (Kokoro); if that fails, the browser's own voice takes over.
+Speech input uses Chrome's built-in recognition, which sends audio to Google. For fully local listening, use `talk.py`.
 
-| Folder | Purpose |
+## Talk to him
+
+```powershell
+cd D:\jarvis-x; .\.venv\Scripts\Activate.ps1; python talk.py
+```
+
+Say "Hey Jarvis", then your request. Say "goodbye Jarvis" or press Ctrl+C to stop.
+`python talk.py --no-wake` listens without the wake word. `python talk.py --text` lets you type while he answers out loud.
+
+## Files
+
+| File | Job |
 |---|---|
-| `ui/` | HUD front end |
-| `core/` | Brain: Ollama chat loop, tools, memory, audit log |
-| `voice/` | Speech in and out services |
+| `config.py` | All settings: model, personality, allowed apps, voice |
+| `main.py` | Web API (`/chat`, `/speak`, `/audit`, `/hud`) |
+| `brain.py` | Thinking loop: history + facts + model + tools |
+| `memory.py` | SQLite storage: messages, facts, audit log |
+| `tools.py` | Actions Jarvis can take, with the security rules |
+| `voice.py` | Text to speech (Kokoro, British voice) |
+| `talk.py` | Voice conversation: wake word, speech recognition, spoken replies |
+| `ui/index.html` | The HUD: holographic interface served at `/hud` |
+| `data/` | Database, notes workspace, audio (not committed to Git) |
 
-## Roadmap
+## Security rules (enforced in code)
 
-1. Chat, personality and voice (in progress)
-2. Wake word ("hey jarvis") and SQLite memory
-3. Three safe tools with an allow-list, approval step and audit log
-4. Multi-step tasks (LangGraph), screen understanding, browser control
-5. Home Assistant and monitoring
+- Apps: only those listed in `config.ALLOWED_APPS` can be opened.
+- Files: notes are written only inside `data/workspace`, as `.txt`, and never overwrite.
+- Every tool call, allowed or refused, is written to the audit log.
+- The model cannot claim it remembered something unless the tool really ran.
+- The server listens on 127.0.0.1 only.
 
-## Security
+## Tests
 
-Rules are enforced in code, not just in the prompt: allow-listed apps, folders and commands; human approval before anything destructive; never running raw model output; an audit log of every tool call; and everything bound to `127.0.0.1`.
+```powershell
+python -m pytest -q            # offline, no model needed
+python tests\smoke_live.py     # live check against the real model
+python tests\voice_roundtrip.py  # text -> speech -> text, no mic or speakers needed
+python tests\recorder_check.py   # wake word + listening pipeline, fed from a recording
+```
