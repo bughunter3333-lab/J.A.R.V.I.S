@@ -1,0 +1,29 @@
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+.env
+*.egg-info/
+
+# Local data and models
+*.db
+*.sqlite3
+data/
+models/
+*.gguf
+*.onnx
+*.pt
+*.bin
+
+# Audio output and logs
+*.wav
+*.mp3
+logs/
+*.log
+
+# Editors / OS
+.vscode/
+.idea/
+Thumbs.db
+.DS_Store
