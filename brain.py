@@ -125,6 +125,9 @@ class _Sentences:
         return " ".join(self.sent)
 
 
+EMPTY_REPLY = "Sorry, sir, I didn't quite catch that. Could you say it again?"
+
+
 def _answer_approval(message: str, session: str, trace: dict) -> str | None:
     """If an action is waiting for sir and this message is his yes/no, settle it in code."""
     waiting = approvals.pending(session)
@@ -217,6 +220,11 @@ def _respond(message: str, session: str, trace: dict):
         yield {"type": "sentence", "text": sentence}
 
     final = out.reply or security.redact(reply)
+    if not final.strip():
+        # The model sometimes returns nothing (often for a mis-heard fragment). Never
+        # leave sir with silence and a "..." on screen.
+        final = EMPTY_REPLY
+        yield {"type": "sentence", "text": final}
     memory.add_message(session, "user", security.clean_for_storage("history", message))
     memory.add_message(session, "assistant", final)
     yield {"type": "done", "reply": final}

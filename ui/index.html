@@ -129,7 +129,7 @@ function loadCfg(){ try{ return {...DEFAULTS, ...JSON.parse(localStorage.getItem
 function saveCfg(){ try{ localStorage.setItem("jarvis.hud", JSON.stringify(cfg)); }catch(e){} }
 const cfg = loadCfg();
 const api = path => (cfg.server || "").replace(/\/$/,"") + path;
-const SESSION = "hud";   // conversation history for the HUD is kept server-side under this name
+let SESSION = "hud";   // replaced at boot by the server's session: every server start is a fresh conversation
 
 // ---------- DOM ----------
 const $ = id => document.getElementById(id);
@@ -681,6 +681,9 @@ async function boot(){
     setState("offline"); els.rModel.textContent = "OFFLINE";
     caption("JARVIS-X isn't answering. Start it with uvicorn main:app --reload, then open http://127.0.0.1:8000/hud");
     return;
+  }
+  if (health.session && health.session !== SESSION){
+    SESSION = health.session; els.log.innerHTML = ""; hideApproval();   // new server run: start clean
   }
   const bad = (health.checks||[]).find(c=>c.status==="fail");
   const warn = (health.checks||[]).find(c=>c.status==="warn");

@@ -91,3 +91,15 @@ def test_chat_stream_includes_pending_approval(monkeypatch):
     res = TestClient(main.app).post("/chat/stream", json={"message": "lock", "session": "hud"})
     done = json.loads(res.text.splitlines()[-1])
     assert done["approval"]["summary"] == "lock the screen"
+
+
+def test_empty_model_reply_is_never_silent(monkeypatch, tmp_path):
+    import brain, config, memory
+    from types import SimpleNamespace as NS
+    monkeypatch.setattr(config, "DATA_DIR", tmp_path)
+    monkeypatch.setattr(config, "DB_PATH", tmp_path / "e.db")
+    memory.init_db()
+    monkeypatch.setattr(brain, "chat", lambda **kw: iter([NS(message=NS(content="", tool_calls=None))]))
+    events = list(brain.respond_events("Goats.", "s"))
+    assert events[-1] == {"type": "done", "reply": brain.EMPTY_REPLY}
+    assert {"type": "sentence", "text": brain.EMPTY_REPLY} in events

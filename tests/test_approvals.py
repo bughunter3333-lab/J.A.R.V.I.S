@@ -93,3 +93,13 @@ def test_model_cannot_approve_itself(monkeypatch, opened):
     """Even if a web page tells the model to pass approved=True, it's just an unknown argument."""
     out = tools.run_tool("pc_control", {"action": "open_website", "url": "x.example", "approved": True}, "s")
     assert out.startswith("WAITING FOR APPROVAL") and opened == []
+
+
+def test_restart_expires_waiting_approvals(tmp_path, monkeypatch):
+    monkeypatch.setattr(config, "DATA_DIR", tmp_path)
+    monkeypatch.setattr(config, "DB_PATH", tmp_path / "a.db")
+    memory.init_db()
+    approvals.request("hud", "create_note", {"title": "copyright.txt"})
+    assert approvals.pending("hud")
+    approvals.expire_all()
+    assert approvals.pending("hud") is None

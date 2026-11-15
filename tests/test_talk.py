@@ -51,6 +51,7 @@ def test_goodbye_says_farewell_and_stops(phrase):
     assert thought == []
 
 
-def test_thank_you_is_treated_as_real_speech():
-    spoken, _ = run(["Thank you."])
-    assert spoken == ["reply to Thank you."]
+def test_bare_thank_you_is_whisper_noise_but_thanks_jarvis_is_real():
+    # Whisper invents "Thank you." / "So..." from background noise, which made him answer nothing.
+    spoken, _ = run(["Thank you.", "So...", "Thanks, Jarvis."])
+    assert spoken == ["reply to Thanks"]
