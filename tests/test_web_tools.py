@@ -201,3 +201,12 @@ def test_all_tools_have_schemas_ollama_can_read():
     from ollama._utils import convert_function_to_tool
     for fn in tools.TOOLS.values():
         assert convert_function_to_tool(fn).function.description
+
+
+def test_searches_only_go_to_the_configured_engine(fake_ddgs, monkeypatch):
+    seen = []
+    monkeypatch.setattr(FakeDDGS, "text", lambda self, q, **k: seen.append(k.get("backend")) or [])
+    monkeypatch.setattr(FakeDDGS, "news", lambda self, q, **k: seen.append(k.get("backend")) or [])
+    tools.run_tool("web_search", {"query": "kokoro tts", "news": False})
+    tools.run_tool("web_search", {"query": "launch", "news": True})
+    assert seen == ["duckduckgo", "duckduckgo"] == [config.SEARCH_BACKEND] * 2

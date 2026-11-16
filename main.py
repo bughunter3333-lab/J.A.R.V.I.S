@@ -2,6 +2,7 @@
 import io
 import json
 import os
+import sys
 import time
 import threading
 from contextlib import asynccontextmanager
@@ -33,6 +34,15 @@ def _warm_up_voice() -> None:
         print(f"Voice not available yet: {type(exc).__name__}: {exc}")
 
 
+def _warm_up_model() -> None:
+    """Load the language model in the background so the first reply isn't a cold start."""
+    try:
+        brain.warm_up()
+        print("Model loaded.")
+    except Exception as exc:  # Ollama not running yet: the first request will load it
+        print(f"Model not loaded yet: {type(exc).__name__}: {exc}")
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     memory.init_db()
@@ -41,6 +51,8 @@ async def lifespan(app: FastAPI):
     reminders.start_checker()
     if os.environ.get("JARVIS_NO_VOICE_WARMUP") != "1":
         threading.Thread(target=_warm_up_voice, daemon=True).start()
+    if os.environ.get("JARVIS_NO_MODEL_WARMUP") != "1" and "pytest" not in sys.modules:
+        threading.Thread(target=_warm_up_model, daemon=True).start()
     yield
     from listener import listener
     listener.stop()  # release the microphone when the server stops or reloads

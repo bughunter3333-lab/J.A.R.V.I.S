@@ -111,6 +111,47 @@ def tool_call_in_text(text: str):
 
 
 SPEAKER_LABEL = re.compile(r"^(?:You|Jarvis|JARVIS|Assistant)\s*:\s*")
+# ---------------------------------------------------------------- context budget
+MODEL_OPTIONS = {"num_ctx": config.CONTEXT_TOKENS}
+CHARS_PER_TOKEN = 3.0  # English is ~4; 3 errs on the safe side
+CUT_NOTE = " [... cut to fit]"
+
+
+def _tool_schema_tokens() -> int:
+    """Rough size of the tool list the model is sent with every request."""
+    return sum(len(fn.__doc__ or "") + len(fn.__name__) + 60 for fn in tools.TOOLS.values()) // 3
+
+
+def _content(m) -> str:
+    if isinstance(m, dict):
+        return str(m.get("content") or "") + str(m.get("tool_calls") or "")
+    return str(getattr(m, "content", "") or "") + str(getattr(m, "tool_calls", "") or "")
+
+
+def estimate_tokens(messages: list) -> int:
+    return _tool_schema_tokens() + sum(int(len(_content(m)) / CHARS_PER_TOKEN) + 4 for m in messages)
+
+
+def fit_context(messages: list, history_len: int) -> int:
+    """Make the request fit config.CONTEXT_TOKENS so Ollama never cuts the system prompt off.
+    Drops the oldest history first, then shortens the longest tool result. The system prompt
+    and sir's current message are never touched. Returns how much history is left."""
+    budget = config.CONTEXT_TOKENS - config.REPLY_TOKENS
+    while estimate_tokens(messages) > budget and history_len > 0:
+        del messages[1]
+        history_len -= 1
+    while estimate_tokens(messages) > budget:
+        results = [m for m in messages if isinstance(m, dict) and m.get("role") == "tool"
+                   and len(m.get("content") or "") > 400]
+        if not results:
+            break
+        longest = max(results, key=lambda m: len(m["content"]))
+        over = int((estimate_tokens(messages) - budget) * CHARS_PER_TOKEN) + 50
+        keep = max(300, len(longest["content"]) - over)
+        longest["content"] = longest["content"][:keep] + CUT_NOTE
+    return history_len
+
+
 # A reply that is nothing but presence filler ("I am here, sir.", "Yes, sir?").
 PRESENCE_ONLY = re.compile(
     r"^\s*(?:I(?:'m| am) (?:here|listening)(?: to (?:assist|help|serve)(?: you)?)?|Yes|At your service|How (?:can|may) I (?:help|assist)(?: you)?"
@@ -135,6 +176,15 @@ def strip_stock_offer(reply: str) -> str:
     """Drop a trailing 'Is there anything else I can assist you with?' (unless that's all he said)."""
     trimmed = TRAILING_OFFER.sub("", STOCK_OFFER.sub("", reply)).strip()
     return trimmed or reply
+
+
+def warm_up() -> None:
+    """Load the model and let it read the system prompt and tool list once, so the first
+    real reply doesn't wait for a cold load plus ~3,100 tokens of prompt."""
+    chat(model=config.MODEL, messages=[{"role": "system", "content": _system_prompt()},
+                                       {"role": "user", "content": "Ready?"}],
+         tools=list(tools.TOOLS.values()), think=False, keep_alive=config.MODEL_KEEP_ALIVE,
+         options={**MODEL_OPTIONS, "num_predict": 1})
 
 
 def _system_prompt() -> str:
@@ -349,7 +399,9 @@ def _respond(message: str, session: str, trace: dict):
         return
 
     messages = [{"role": "system", "content": _system_prompt()}]
-    messages += memory.recent_messages(session)
+    history = memory.recent_messages(session)
+    messages += history
+    history_len = len(history)
     messages.append({"role": "user", "content": with_tool_hint(message)})
     routed = preroute(message)
 
@@ -380,7 +432,9 @@ def _respond(message: str, session: str, trace: dict):
         trace["rounds"] += 1
         text, tool_calls, tool_message, parroted = "", [], None, False
         round_out = _Sentences() if hold_back else out
+        history_len = fit_context(messages, history_len)
         for chunk in chat(model=config.MODEL, messages=messages, tools=list(tools.TOOLS.values()),
+                          options=MODEL_OPTIONS, keep_alive=config.MODEL_KEEP_ALIVE,
                           think=False, stream=True):
             piece = chunk.message.content or ""
             text += piece

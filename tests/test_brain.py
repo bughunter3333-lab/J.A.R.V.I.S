@@ -385,3 +385,61 @@ def test_the_same_report_after_a_tool_call_is_fine(monkeypatch):
     seen = script(monkeypatch, call("get_current_time"), say("The volume has been reduced, sir."))
     assert brain.respond("lower still", "s") == "The volume has been reduced, sir."
     assert len(seen) == 2
+
+
+# ---- the request must fit the model's window, or Ollama cuts the system prompt off ----
+
+def test_every_model_call_sets_the_context_size(monkeypatch):
+    sent = {}
+
+    def fake_chat(**kwargs):
+        sent.update(kwargs)
+        return iter([say("Noon, sir.")])
+
+    monkeypatch.setattr(brain, "chat", fake_chat)
+    brain.respond("what time is it", "s")
+    assert sent["options"]["num_ctx"] == config.CONTEXT_TOKENS
+
+
+def test_old_history_is_dropped_first_to_fit(monkeypatch):
+    monkeypatch.setattr(config, "CONTEXT_TOKENS", 6000)
+    system = {"role": "system", "content": config.SYSTEM_PROMPT}
+    history = [{"role": "user" if i % 2 == 0 else "assistant", "content": f"message {i} " + "word " * 400}
+               for i in range(10)]
+    now = {"role": "user", "content": "and now?"}
+    messages = [system, *history, now]
+    left = brain.fit_context(messages, len(history))
+    assert brain.estimate_tokens(messages) <= config.CONTEXT_TOKENS - config.REPLY_TOKENS
+    assert messages[0] is system and messages[-1] is now          # never touched
+    assert 0 < left < len(history) and messages[1] is history[len(history) - left]  # newest kept
+
+
+def test_a_huge_tool_result_is_shortened_not_the_system_prompt(monkeypatch):
+    monkeypatch.setattr(config, "CONTEXT_TOKENS", 6000)
+    system = {"role": "system", "content": config.SYSTEM_PROMPT}
+    result = {"role": "tool", "tool_name": "files", "content": "text " * 6000}
+    messages = [system, {"role": "user", "content": "read my file"}, result]
+    brain.fit_context(messages, 0)
+    assert messages[0]["content"] == config.SYSTEM_PROMPT
+    assert result["content"].endswith(brain.CUT_NOTE) and len(result["content"]) < 30000
+    assert brain.estimate_tokens(messages) <= config.CONTEXT_TOKENS - config.REPLY_TOKENS
+
+
+def test_a_small_request_is_left_alone():
+    messages = [{"role": "system", "content": config.SYSTEM_PROMPT}, {"role": "user", "content": "hi"}]
+    assert brain.fit_context(messages, 0) == 0 and len(messages) == 2
+
+
+def test_model_stays_loaded_between_replies(monkeypatch):
+    sent = {}
+    monkeypatch.setattr(brain, "chat", lambda **kw: sent.update(kw) or iter([say("Noon, sir.")]))
+    brain.respond("what time is it", "s")
+    assert sent["keep_alive"] == config.MODEL_KEEP_ALIVE
+
+
+def test_warm_up_reads_the_real_system_prompt_and_tools(monkeypatch):
+    sent = {}
+    monkeypatch.setattr(brain, "chat", lambda **kw: sent.update(kw))
+    brain.warm_up()
+    assert sent["messages"][0]["content"] == brain._system_prompt()
+    assert len(sent["tools"]) == len(brain.tools.TOOLS) and sent["options"]["num_predict"] == 1
