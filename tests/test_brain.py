@@ -257,8 +257,9 @@ def test_speaker_label_is_removed(monkeypatch):
 
 
 def test_purpose_statement_alone_is_filler(monkeypatch):
-    script(monkeypatch, say("I am here to assist, sir."))
-    assert brain.respond("You're useless sometimes", "s") == brain.ACKNOWLEDGE
+    seen = script(monkeypatch, say("I am here to assist, sir."), say("I am here to assist, sir."))
+    assert brain.respond("You're useless sometimes", "s") == brain.ACKNOWLEDGE  # one retry, then give up
+    assert len(seen) == 2
 
 
 def test_weather_place_sir_never_said_becomes_home_city(monkeypatch):
@@ -292,3 +293,42 @@ def test_im_here_to_tail_and_second_sir_are_removed(monkeypatch):
     assert brain.respond("Thanks Jarvis", "s") == "You're welcome, sir."
     script(monkeypatch, say("Overcast, sir, with rain. Tomorrow looks drier, sir. Sir, take an umbrella."))
     assert brain.respond("Weather?", "s2") == "Overcast, sir, with rain. Tomorrow looks drier. Take an umbrella."
+
+
+@pytest.mark.parametrize("said,tool", [
+    ("Mute the sound", "pc_control"), ("Can you unmute it", "pc_control"),
+    ("What did I just copy?", "clipboard"), ("What's on my clipboard?", "clipboard"),
+    ("What did I write about the cryptography project?", "search_notes"),
+    ("Check my notes for the wifi password", "search_notes"),
+    ("Who invented the World Wide Web?", "look_up"), ("Who discovered penicillin?", "look_up"),
+    ("Tell me about the Sydney Opera House", "look_up"),
+])
+def test_clear_requests_get_a_tool_hint(said, tool):
+    assert brain.with_tool_hint(said).endswith(brain.TOOL_HINT.format(tool=tool))
+
+
+@pytest.mark.parametrize("said", ["Who made you?", "Who built you?", "Tell me about yourself", "Tell me a joke",
+                                  "Make a note called shopping", "I'm so tired", "Good morning, Jarvis"])
+def test_other_messages_get_no_hint(said):
+    assert brain.with_tool_hint(said) == said
+
+
+def test_hint_goes_to_the_model_but_not_into_history(monkeypatch):
+    seen = script(monkeypatch, say("Muted, sir."))
+    brain.respond("Mute the sound", "s")
+    assert seen[0][-1]["content"].endswith(brain.TOOL_HINT.format(tool="pc_control"))
+    assert memory.recent_messages("s")[0]["content"] == "Mute the sound"
+
+
+def test_filler_only_reply_is_retried_once(monkeypatch):
+    seen = script(monkeypatch, say("Sir, I'm here to help if you need anything."), say("Then rest, sir. The work will keep."))
+    assert brain.respond("I'm so tired", "s") == "Then rest, sir. The work will keep."
+    assert len(seen) == 2
+
+
+def test_no_exclamations_and_no_copied_tail(monkeypatch):
+    tail = next(b.split(". ", 1)[1] for a, b in config.VOICE_EXAMPLE_PAIRS if "vegetables" in b)
+    script(monkeypatch, say(f"Ambitious, sir. {tail}"))
+    assert brain.respond("Should I study or play games tonight?", "s") == "Ambitious, sir."
+    script(monkeypatch, say("Congratulations, sir! Well earned."))
+    assert brain.respond("I passed my exam", "s2") == "Congratulations, sir. Well earned."

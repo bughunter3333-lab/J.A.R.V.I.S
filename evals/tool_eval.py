@@ -135,13 +135,14 @@ CASES = [
 
 def first_decision(message: str, chat=None) -> tuple[list[dict], float]:
     """Ask the model once; return its tool calls (name + args) and the time taken."""
+    import brain
     if chat is None:
         from ollama import chat
     started = time.perf_counter()
     response = chat(
         model=config.MODEL,
         messages=[{"role": "system", "content": config.SYSTEM_PROMPT},
-                  {"role": "user", "content": message}],
+                  {"role": "user", "content": brain.with_tool_hint(message)}],  # as the real brain sends it
         tools=list(tools.TOOLS.values()),
         think=False,
     )

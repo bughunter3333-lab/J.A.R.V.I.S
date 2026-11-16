@@ -193,6 +193,11 @@ EXTRA_SIR = re.compile(r",\s*sir\b(?=\s*[,.?!])", re.I)
 LEADING_SIR = re.compile(r"^sir,\s*", re.I)
 
 
+def _is_filler(text: str) -> bool:
+    text = LEADING_SIR.sub("", text.strip())
+    return bool(text) and bool(HERE_TO.match(text) or PRESENCE_ONLY.match(text))
+
+
 class _Sentences:
     """Collects streamed text and releases it a cleaned sentence at a time."""
 
@@ -206,8 +211,12 @@ class _Sentences:
         if PRESENCE_ONLY.match(sentence):
             self.dropped_filler = True
             return None  # "I am here, sir." says nothing; never speak it
-        if self.sent and HERE_TO.match(sentence):
-            return None  # "You're welcome, sir. I'm here to ensure everything runs smoothly."
+        if HERE_TO.match(LEADING_SIR.sub("", sentence)):
+            self.dropped_filler = True
+            return None  # "I'm here to help if you need anything" / "...to ensure everything runs smoothly"
+        if self.sent and copies_example(sentence):
+            return None  # "Ambitious, sir. I'll make no comment on the vegetables." (a copied tail)
+        sentence = sentence.replace("!", ".")  # he never exclaims
         if any(SIR.search(said) for said in self.sent):
             # 'sir' once per reply: "Overcast, sir, and there's a 100%... tomorrow, sir."
             sentence = LEADING_SIR.sub("", EXTRA_SIR.sub("", sentence))
@@ -265,6 +274,28 @@ def _answer_approval(message: str, session: str, trace: dict) -> str | None:
     return f"Done, sir. {result}"
 
 
+# Requests qwen3 kept answering from memory although a tool exists (the same miss in all
+# three runs of 'tool_eval --repeat 3'). For these clear cases the request is sent with a
+# one-line hint naming the tool. The hint is not saved in the chat history.
+TOOL_HINTS = [
+    (re.compile(r"\b(clipboard|what did i (just )?cop(y|ied)|what have i (just )?copied)\b", re.I), "clipboard"),
+    (re.compile(r"\b(un)?mute\b", re.I), "pc_control"),
+    (re.compile(r"\b(what|where) did i (write|note|jot|put down)\b|\b(search|check|look (in|through)|find in) my notes\b"
+                r"|\bin my notes\b", re.I), "search_notes"),
+    (re.compile(r"^\s*(who (invented|discovered|founded|created|designed|built|wrote|painted)\b(?!.*\byou\b)"
+                r"|tell me about (?!yourself|you\b|my\b|your\b))", re.I), "look_up"),
+]
+TOOL_HINT = "\n\n(System hint, not from sir: use the {tool} tool for this rather than answering from memory.)"
+
+
+def with_tool_hint(message: str) -> str:
+    """The message as sent to the model: with a tool hint when one clearly applies."""
+    for pattern, tool in TOOL_HINTS:
+        if pattern.search(message):
+            return message + TOOL_HINT.format(tool=tool)
+    return message
+
+
 def _grounded(name: str, args: dict, messages: list) -> dict:
     """Drop a weather place sir never mentioned. Playing a British butler, the model liked
     to fill in 'London' when sir just said 'Weather?' (seen in the simulation); an empty
@@ -290,7 +321,7 @@ def _respond(message: str, session: str, trace: dict):
 
     messages = [{"role": "system", "content": _system_prompt()}]
     messages += memory.recent_messages(session)
-    messages.append({"role": "user", "content": message})
+    messages.append({"role": "user", "content": with_tool_hint(message)})
 
     # If sir asked Jarvis to remember something, hold the reply back until the
     # false-memory check below has run, instead of speaking it as it streams.
@@ -319,8 +350,14 @@ def _respond(message: str, session: str, trace: dict):
         if (not parroted and not parrot_retried and not tool_calls and not hold_back
                 and not round_out.sent and copies_example(round_out.buffer)):
             parroted = True  # a one-sentence copy, still unspoken in the buffer
+        if (not parroted and not parrot_retried and not tool_calls and not hold_back
+                and not round_out.sent and len(_words(message)) >= 3
+                and ((round_out.dropped_filler and not round_out.buffer.strip())
+                     or _is_filler(round_out.buffer))):
+            parroted = True  # he said only "I'm here to help, sir": ask for a real answer once
         if parroted:
             parrot_retried = True
+            round_out.dropped_filler = False
             round_out.sent.clear()
             round_out.buffer = ""
             # The retry gets no examples at all: with them still in view, qwen3 often
