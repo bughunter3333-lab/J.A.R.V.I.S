@@ -59,7 +59,8 @@ EXAMPLE_LINES = {
     for line in re.split(r"(?<=[.!?])\s+", example) if len(_words(line)) >= 4
 }
 PARROT_NUDGE = (
-    "(Note from the system, not sir: do not reuse any line from your examples. Reply to sir's "
+    "(Note from the system, not sir: do not reuse any line from your examples, and do not "
+    "repeat your previous reply. Reply to sir's "
     "message \"{message}\" in your own words, in one or two short sentences.)"
 )
 
@@ -357,6 +358,15 @@ def _respond(message: str, session: str, trace: dict):
     hold_back = bool(ASKED_TO_REMEMBER.search(message))
     out = _Sentences()
     reply, called, nudged, pushed_to_act, parrot_retried = "", set(), False, False, False
+    # His last reply in this conversation. qwen3 repeats it word for word when sir only
+    # acknowledges ("ok", "understood", "no problem"): the same error came out four times.
+    last_said = next((m["content"] for m in reversed(messages[1:-1]) if isinstance(m, dict)
+                      and m.get("role") == "assistant" and m.get("content")), "")
+    last_opening = _words(re.split(r"(?<=[.!?])\s+", last_said.strip())[0]) if last_said.strip() else ()
+
+    def is_copy(sentence: str) -> bool:
+        repeats_himself = (not called and len(last_opening) >= 4 and _words(sentence) == last_opening)
+        return copies_example(sentence) or repeats_himself
     if routed:
         name, args = routed
         called.add(name)
@@ -379,14 +389,14 @@ def _respond(message: str, session: str, trace: dict):
                 tool_message = chunk.message
             if piece and not tool_calls and not hold_back:
                 for sentence in round_out.add(piece):
-                    if not parrot_retried and len(round_out.sent) == 1 and copies_example(sentence):
+                    if not parrot_retried and len(round_out.sent) == 1 and is_copy(sentence):
                         parroted = True  # caught before it was spoken
                         break
                     yield {"type": "sentence", "text": sentence}
             if parroted:
                 break
         if (not parroted and not parrot_retried and not tool_calls and not hold_back
-                and not round_out.sent and copies_example(round_out.buffer)):
+                and not round_out.sent and is_copy(round_out.buffer)):
             parroted = True  # a one-sentence copy, still unspoken in the buffer
         if (not parroted and not parrot_retried and not tool_calls and not hold_back
                 and not round_out.sent and len(_words(message)) >= 3

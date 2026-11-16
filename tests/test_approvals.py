@@ -103,3 +103,26 @@ def test_restart_expires_waiting_approvals(tmp_path, monkeypatch):
     assert approvals.pending("hud")
     approvals.expire_all()
     assert approvals.pending("hud") is None
+
+
+# ---- never ask sir to approve something that would be refused anyway ------------------
+
+@pytest.mark.parametrize("url", ["ms-settings:display", "javascript:alert(1)", "http://192.168.1.1"])
+def test_a_refused_address_is_refused_before_asking(url, opened):
+    out = tools.run_tool("pc_control", {"action": "open_website", "url": url}, "s")
+    assert out.startswith("Refused") and approvals.pending("s") is None and opened == []
+
+
+def test_a_settings_address_points_the_model_to_open_settings(opened):
+    out = tools.run_tool("pc_control", {"action": "open_website", "url": "ms-settings:display"}, "s")
+    assert "open_settings" in out
+
+
+@pytest.mark.parametrize("said", ["no problem", "No worries, Jarvis", "no rush"])
+def test_no_problem_is_not_a_refusal(said):
+    assert approvals.decision(said) is None
+
+
+@pytest.mark.parametrize("said", ["no", "No thanks", "nope", "don't"])
+def test_a_real_no_is_still_a_refusal(said):
+    assert approvals.decision(said) == "deny"

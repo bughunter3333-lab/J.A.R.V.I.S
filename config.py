@@ -145,7 +145,7 @@ TOOL_RULES = (
     "get_weather for weather, calculate for any arithmetic, system_status for "
     "questions about the computer, reminder for reminders and timers and for what is "
     "scheduled or coming up, pc_control for "
-    "volume (including 'too loud' or 'can't hear'), music, locking the screen or opening a website, convert for currencies and "
+    "volume (including 'too loud' or 'can't hear'), music, locking the screen, opening a website or opening a Windows Settings page (display, sound, bluetooth, wifi), convert for currencies and "
     "units, look_up for questions about people, places, history, who invented or discovered "
     "something, or what a word means (do not answer those from memory, and never tell sir to look "
     "it up himself), files to find or read sir's "

@@ -29,7 +29,20 @@ import security
 _KEYS = {"volume_up": 0xAF, "volume_down": 0xAE, "mute": 0xAD,
          "play_pause": 0xB3, "next_track": 0xB0, "previous_track": 0xB1}
 PC_ACTIONS = ("volume_up", "volume_down", "mute", "play_pause", "next_track",
-              "previous_track", "lock_screen", "open_website")
+              "previous_track", "lock_screen", "open_website", "open_settings")
+# Windows Settings pages he may open (a fixed list: ms-settings: pages only change what
+# sir then clicks, and nothing outside this list is reachable).
+SETTINGS_PAGES = {
+    "display": "display", "screen": "display", "brightness": "display", "resolution": "display",
+    "sound": "sound", "audio": "sound", "bluetooth": "bluetooth", "devices": "bluetooth",
+    "wifi": "network-wifi", "wi-fi": "network-wifi", "network": "network-status", "internet": "network-status",
+    "notifications": "notifications", "power": "powersleep", "battery": "batterysaver", "sleep": "powersleep",
+    "apps": "appsfeatures", "default apps": "defaultapps", "storage": "storagesense",
+    "update": "windowsupdate", "windows update": "windowsupdate", "privacy": "privacy",
+    "personalisation": "personalization", "personalization": "personalization", "background": "personalization-background",
+    "themes": "themes", "colours": "colors", "colors": "colors", "mouse": "mousetouchpad", "keyboard": "typing",
+    "time": "dateandtime", "date": "dateandtime", "language": "regionlanguage", "about": "about", "home": "",
+}
 
 
 class NotAllowed(Exception):
@@ -49,7 +62,26 @@ def _press(vk: int, times: int = 1) -> None:
         time.sleep(0.02)
 
 
-def open_website(url: str) -> str:
+def settings_page(page: str) -> str:
+    """'display settings' -> 'display'. Refuses anything not in SETTINGS_PAGES."""
+    key = re.sub(r"\s+", " ", page.lower().replace("ms-settings:", "").replace("settings", "")).strip(" :")
+    if key not in SETTINGS_PAGES:
+        raise NotAllowed(f"I can open these settings pages: {', '.join(sorted(set(SETTINGS_PAGES) - {'home'}))}.")
+    return SETTINGS_PAGES[key]
+
+
+def open_settings(page: str) -> str:
+    target = settings_page(page)
+    _windows_only()
+    import os
+
+    os.startfile("ms-settings:" + target)
+    return f"Opened the {page.strip() or 'Settings'} settings."
+
+
+def check_url(url: str) -> str:
+    """The address as it would be opened, or NotAllowed. Run before sir is asked to approve,
+    so he is never asked to approve something that would be refused anyway."""
     url = url.strip()
     if re.match(r"^[a-zA-Z][a-zA-Z0-9+.-]*:(?!\d)", url) and "://" not in url:
         raise NotAllowed("Only normal http or https web addresses can be opened.")
@@ -63,6 +95,12 @@ def open_website(url: str) -> str:
     host = parsed.hostname.lower()
     if host == "localhost" or host.endswith((".local", ".lan", ".internal")) or _is_internal_ip(host):
         raise NotAllowed("I don't open addresses on this PC or the home network.")
+    return url
+
+
+def open_website(url: str) -> str:
+    url = check_url(url)
+    parsed = urlparse(url)
     webbrowser.open(url, new=2)
     return f"Opened {parsed.hostname} in the browser."
 
@@ -77,13 +115,37 @@ def _is_internal_ip(host: str) -> bool:
     return ip.is_private or ip.is_loopback or ip.is_link_local or ip.is_reserved
 
 
+def normalise_action(action: str) -> str:
+    action = action.strip().lower().replace(" ", "_").replace("-", "_")
+    return {"pause": "play_pause", "play": "play_pause", "next": "next_track", "skip": "next_track",
+            "previous": "previous_track", "unmute": "mute", "lock": "lock_screen", "louder": "volume_up",
+            "quieter": "volume_down", "open": "open_website", "website": "open_website",
+            "settings": "open_settings"}.get(action, action)
+
+
+def precheck(action: str, url: str = "") -> None:
+    """Refuse now what control() would refuse, before anyone is asked to approve it."""
+    action = normalise_action(action)
+    if action not in PC_ACTIONS:
+        raise NotAllowed(f"Unknown action '{action}'. Allowed: {', '.join(PC_ACTIONS)}.")
+    if action == "open_website":
+        if not url:
+            raise NotAllowed("Which website? Give me its address.")
+        if url.strip().lower().startswith("ms-settings:"):
+            raise NotAllowed("That is a Windows Settings page: use open_settings with the page name.")
+        check_url(url)
+
+
 def control(action: str, url: str = "", steps: int = 5) -> str:
     action = action.strip().lower().replace(" ", "_").replace("-", "_")
     action = {"pause": "play_pause", "play": "play_pause", "next": "next_track", "skip": "next_track",
               "previous": "previous_track", "unmute": "mute", "lock": "lock_screen", "louder": "volume_up",
-              "quieter": "volume_down", "open": "open_website", "website": "open_website"}.get(action, action)
+              "quieter": "volume_down", "open": "open_website", "website": "open_website",
+              "settings": "open_settings"}.get(action, action)
     if action not in PC_ACTIONS:
         raise NotAllowed(f"Unknown action '{action}'. Allowed: {', '.join(PC_ACTIONS)}.")
+    if action == "open_settings":
+        return open_settings(url)
     if action == "open_website":
         if not url:
             raise NotAllowed("Which website? Give me its address.")
