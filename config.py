@@ -134,7 +134,7 @@ TOOL_RULES = (
     "people, events, facts, and any live number such as a Bitcoin or share price or a score), "
     "use web_search, and read_webpage if the snippets are not "
     "enough; say which site the answer came from, and never invent a source. Use "
-    "about_me whenever sir asks when you were built, how old you are, how long ago "
+    "about_me whenever sir asks when you were built, made or created, how old you are, how long ago "
     "you were made, your version or how long you have been running, and repeat its "
     "numbers exactly, "
     "get_weather for weather, calculate for any arithmetic, system_status for "
