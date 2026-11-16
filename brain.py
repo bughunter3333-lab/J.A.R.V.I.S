@@ -288,6 +288,32 @@ TOOL_HINTS = [
 TOOL_HINT = "\n\n(System hint, not from sir: use the {tool} tool for this rather than answering from memory.)"
 
 
+# Read-only requests the model ignored even with a hint (0/3 in tool_eval). These are run
+# by the brain itself before the model answers, so the model only has to put the result
+# into words. Only tools that read and change nothing are routed this way.
+_NOTES_TOPIC = re.compile(r"\b(?:what|where) did i (?:write|note|jot|put down)(?: down)? (?:about|on|for|regarding) (.+)"
+                          r"|\b(?:search|check|look (?:in|through)) my notes (?:for|about) (.+)", re.I)
+_CLIPBOARD_READ = re.compile(r"\bwhat did i (?:just )?cop(?:y|ied)\b|\bwhat(?:'s| is) (?:on|in) (?:my|the) clipboard\b"
+                             r"|\bread (?:my|the) clipboard\b", re.I)
+_BARE_WEATHER = re.compile(r"^\s*(?:(?:what's|whats|what is|how's|hows|how is) the )?weather(?: like)?"
+                           r"(?: today| now| outside| at the moment)?(?:,? jarvis)?\s*\??\s*$", re.I)
+
+
+def preroute(message: str) -> tuple[str, dict] | None:
+    """(tool, args) to run before the model answers, for clear read-only requests."""
+    if _CLIPBOARD_READ.search(message):
+        return "clipboard", {"action": "read"}
+    m = _NOTES_TOPIC.search(message)
+    if m:
+        topic = re.sub(r"^(?:the|my)\s+", "", (m.group(1) or m.group(2)).strip(" ?.!"), flags=re.I)
+        topic = re.sub(r"\s+(?:project|assignment|unit|notes?)$", "", topic, flags=re.I) or topic
+        if topic:
+            return "search_notes", {"query": topic}
+    if _BARE_WEATHER.match(message):
+        return "get_weather", {"place": ""}
+    return None
+
+
 def with_tool_hint(message: str) -> str:
     """The message as sent to the model: with a tool hint when one clearly applies."""
     for pattern, tool in TOOL_HINTS:
@@ -322,12 +348,22 @@ def _respond(message: str, session: str, trace: dict):
     messages = [{"role": "system", "content": _system_prompt()}]
     messages += memory.recent_messages(session)
     messages.append({"role": "user", "content": with_tool_hint(message)})
+    routed = preroute(message)
 
     # If sir asked Jarvis to remember something, hold the reply back until the
     # false-memory check below has run, instead of speaking it as it streams.
     hold_back = bool(ASKED_TO_REMEMBER.search(message))
     out = _Sentences()
     reply, called, nudged, pushed_to_act, parrot_retried = "", set(), False, False, False
+    if routed:
+        name, args = routed
+        called.add(name)
+        trace["tools"].append(name)
+        yield {"type": "status", "text": STATUS.get(name, "Working on it")}
+        call = Message.ToolCall(function=Message.ToolCall.Function(name=name, arguments=args))
+        messages.append(Message(role="assistant", content="", tool_calls=[call]))
+        routed_result = tools.run_tool(name, args, session)
+        messages.append({"role": "tool", "tool_name": name, "content": routed_result})
     for _ in range(config.MAX_TOOL_ROUNDS):
         trace["rounds"] += 1
         text, tool_calls, tool_message, parroted = "", [], None, False
@@ -382,7 +418,10 @@ def _respond(message: str, session: str, trace: dict):
                 trace["tools"].append(name)
                 yield {"type": "status", "text": STATUS.get(name, "Working on it")}
                 args = _grounded(name, dict(call.function.arguments or {}), messages)
-                result = tools.run_tool(name, args, session)
+                if routed and (name, args) == routed:
+                    result = routed_result  # already run for this request; don't fetch it twice
+                else:
+                    result = tools.run_tool(name, args, session)
                 messages.append({"role": "tool", "tool_name": name, "content": result})
             continue
         false_claim = (

@@ -332,3 +332,33 @@ def test_no_exclamations_and_no_copied_tail(monkeypatch):
     assert brain.respond("Should I study or play games tonight?", "s") == "Ambitious, sir."
     script(monkeypatch, say("Congratulations, sir! Well earned."))
     assert brain.respond("I passed my exam", "s2") == "Congratulations, sir. Well earned."
+
+
+@pytest.mark.parametrize("said,routed", [
+    ("What did I just copy?", ("clipboard", {"action": "read"})),
+    ("What's on my clipboard?", ("clipboard", {"action": "read"})),
+    ("What did I write about the cryptography project?", ("search_notes", {"query": "cryptography"})),
+    ("Search my notes for wifi", ("search_notes", {"query": "wifi"})),
+    ("What's the weather like?", ("get_weather", {"place": ""})),
+    ("Weather?", ("get_weather", {"place": ""})),
+])
+def test_clear_read_only_requests_are_routed(said, routed):
+    assert brain.preroute(said) == routed
+
+
+@pytest.mark.parametrize("said", ["Copy hello to my clipboard", "Make a note about eggs",
+                                  "I don't need the weather, just say hi", "What's the weather like in Paris?",
+                                  "Mute the sound", "Lock my screen", "Tell me a joke"])
+def test_everything_else_is_left_to_the_model(said):
+    assert brain.preroute(said) is None
+
+
+def test_routed_tool_runs_before_the_model_answers(monkeypatch):
+    ran = []
+    monkeypatch.setattr(brain.tools, "run_tool",
+                        lambda name, args, session="default", approved=False: ran.append((name, args)) or "Clipboard: hello")
+    seen = script(monkeypatch, say("You copied 'hello', sir."))
+    events = list(brain.respond_events("What did I just copy?", "s"))
+    assert ran == [("clipboard", {"action": "read"})]
+    assert seen[0][-1]["content"] == "Clipboard: hello"  # the model sees the result, then answers
+    assert events[-1]["reply"] == "You copied 'hello', sir."

@@ -136,6 +136,9 @@ CASES = [
 def first_decision(message: str, chat=None) -> tuple[list[dict], float]:
     """Ask the model once; return its tool calls (name + args) and the time taken."""
     import brain
+    routed = brain.preroute(message)  # clear read-only requests: the brain runs the tool itself
+    if routed:
+        return [{"name": routed[0], "args": routed[1]}], 0.0
     if chat is None:
         from ollama import chat
     started = time.perf_counter()
