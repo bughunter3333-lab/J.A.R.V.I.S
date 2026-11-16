@@ -59,11 +59,13 @@ def search(query: str, news: bool = False, max_results: int = 5) -> str:
 
     with DDGS(timeout=TIMEOUT) as ddgs:
         if news:
-            rows = ddgs.news(query, max_results=max_results, region=config.SEARCH_REGION)
+            rows = ddgs.news(query, max_results=max_results, region=config.SEARCH_REGION,
+                             backend=config.SEARCH_BACKEND)
             lines = [f"- {r.get('title', '')} ({r.get('source', '')}, {r.get('date', '')[:10]}): "
                      f"{r.get('body', '')[:250]} [{r.get('url', '')}]" for r in rows]
         else:
-            rows = ddgs.text(query, max_results=max_results, region=config.SEARCH_REGION)
+            rows = ddgs.text(query, max_results=max_results, region=config.SEARCH_REGION,
+                             backend=config.SEARCH_BACKEND)
             lines = [f"- {r.get('title', '')}: {r.get('body', '')[:250]} [{r.get('href', '')}]"
                      for r in rows]
     if not lines:
