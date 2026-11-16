@@ -178,6 +178,15 @@ def strip_stock_offer(reply: str) -> str:
     return trimmed or reply
 
 
+def warm_up() -> None:
+    """Load the model and let it read the system prompt and tool list once, so the first
+    real reply doesn't wait for a cold load plus ~3,100 tokens of prompt."""
+    chat(model=config.MODEL, messages=[{"role": "system", "content": _system_prompt()},
+                                       {"role": "user", "content": "Ready?"}],
+         tools=list(tools.TOOLS.values()), think=False, keep_alive=config.MODEL_KEEP_ALIVE,
+         options={**MODEL_OPTIONS, "num_predict": 1})
+
+
 def _system_prompt() -> str:
     facts = memory.all_facts()
     if not facts:
@@ -425,7 +434,7 @@ def _respond(message: str, session: str, trace: dict):
         round_out = _Sentences() if hold_back else out
         history_len = fit_context(messages, history_len)
         for chunk in chat(model=config.MODEL, messages=messages, tools=list(tools.TOOLS.values()),
-                          options=MODEL_OPTIONS,
+                          options=MODEL_OPTIONS, keep_alive=config.MODEL_KEEP_ALIVE,
                           think=False, stream=True):
             piece = chunk.message.content or ""
             text += piece

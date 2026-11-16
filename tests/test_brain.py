@@ -428,3 +428,18 @@ def test_a_huge_tool_result_is_shortened_not_the_system_prompt(monkeypatch):
 def test_a_small_request_is_left_alone():
     messages = [{"role": "system", "content": config.SYSTEM_PROMPT}, {"role": "user", "content": "hi"}]
     assert brain.fit_context(messages, 0) == 0 and len(messages) == 2
+
+
+def test_model_stays_loaded_between_replies(monkeypatch):
+    sent = {}
+    monkeypatch.setattr(brain, "chat", lambda **kw: sent.update(kw) or iter([say("Noon, sir.")]))
+    brain.respond("what time is it", "s")
+    assert sent["keep_alive"] == config.MODEL_KEEP_ALIVE
+
+
+def test_warm_up_reads_the_real_system_prompt_and_tools(monkeypatch):
+    sent = {}
+    monkeypatch.setattr(brain, "chat", lambda **kw: sent.update(kw))
+    brain.warm_up()
+    assert sent["messages"][0]["content"] == brain._system_prompt()
+    assert len(sent["tools"]) == len(brain.tools.TOOLS) and sent["options"]["num_predict"] == 1

@@ -21,6 +21,10 @@ HISTORY_LIMIT = 12  # how many past messages are sent back to the model
 # more GPU memory than 4096; lower it if the model no longer fits on the GPU.
 CONTEXT_TOKENS = 8192
 REPLY_TOKENS = 600  # room kept free for his answer
+# How long Ollama keeps the model loaded after a reply. Ollama's own default is 5 minutes,
+# after which the next request waits for the whole model to load again. "-1" = forever,
+# "0" = unload at once (frees the GPU between requests, but every reply starts cold).
+MODEL_KEEP_ALIVE = "60m"
 MAX_TOOL_ROUNDS = 4  # stops the model looping on tool calls forever
 
 # Voice
