@@ -380,6 +380,7 @@ def look_up(topic: str, kind: str = "wikipedia") -> str:
     """Look up a person, place, event, organisation or concept on Wikipedia, or a word in the dictionary.
     Use this for "who was / who is / what is / tell me about / who invented / who discovered"
     questions, and kind "definition" for "what does <word> mean", instead of answering from memory.
+    Not for explaining how something works or the difference between two things: answer those yourself.
 
     Args:
         topic: The subject or word to look up.
