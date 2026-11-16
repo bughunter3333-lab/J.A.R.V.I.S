@@ -67,3 +67,10 @@ def test_copied_example_opener_is_parroting(monkeypatch):
                         (("It's raining again.", "So it is, sir. Ideal for staying in."), ("Never mind.", "Very good, sir.")))
     assert not style_eval.check("So it is, sir. A curious subject.", "short")["not_parroting"]
     assert style_eval.check("Very good, sir.", "short")["not_parroting"]  # plain acknowledgement is fine
+
+
+def test_joke_and_unseen_rules():
+    assert not style_eval.check("I regret, sir, that I am not equipped to tell jokes.", "joke")["tells_joke_when_asked"]
+    assert style_eval.check("I told my firewall a joke, sir. It didn't let it through.", "joke")["tells_joke_when_asked"]
+    assert not style_eval.check("It is clean and well structured, sir.", "unseen")["no_opinion_on_unseen"]
+    assert style_eval.check("I haven't seen it yet, sir. Show me the file.", "unseen")["no_opinion_on_unseen"]

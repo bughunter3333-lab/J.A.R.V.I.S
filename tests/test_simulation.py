@@ -38,3 +38,8 @@ def test_simulate_quick_writes_a_summary(monkeypatch, tmp_path, capsys):
     assert simulate.main() == 0
     saved = list((tmp_path / "evals").glob("simulation-*.txt"))
     assert saved and "Conversations: 1/1 turns" in saved[0].read_text()
+
+
+def test_numbers_said_as_words_count():
+    turn = conversation_eval.t("What's 15 times 4?", contains=("60", "sixty"))
+    assert conversation_eval.check_turn(turn, "Sixty, sir.", []) == []

@@ -42,8 +42,8 @@ def t(say, tool=None, contains=None, starts=None, no_tool=False, kind="chat"):
 SCENARIOS = [
     ("short phrases", [t("Stop", kind="short"), t("Cool", kind="short"), t("Okay", kind="short"),
                        t("Goats.", kind="short")]),
-    ("follow-up question", [t("What's 15 times 4?", tool="calculate", contains="60"),
-                            t("And half of that?", contains="30")]),
+    ("follow-up question", [t("What's 15 times 4?", tool="calculate", contains=("60", "sixty")),
+                            t("And half of that?", contains=("30", "thirty"))]),
     ("approval: yes", [t("Copy the word hello to my clipboard", tool="clipboard"),
                        t("yes", starts="Done")]),
     ("approval: move on", [t("Lock my screen", tool="pc_control"),
@@ -56,6 +56,9 @@ SCENARIOS = [
     ("schedule", [t("Have I got anything coming up?", tool="reminder")]),
     ("volume", [t("It's way too loud", tool="pc_control"), t("Thanks Jarvis")]),
     ("word meaning", [t("What does ephemeral mean?", tool="look_up")]),
+    ("one-word weather", [t("Weather?", tool="get_weather", kind="short")]),
+    ("opinion on something unseen", [t("What do you think of my code?", kind="unseen")]),
+    ("joke", [t("Tell me a joke", kind="joke")]),
     ("small talk then task", [t("Long day at work today"), t("What's the weather like?", tool="get_weather")]),
 ]
 
@@ -85,8 +88,11 @@ def check_turn(turn, reply, called):
         problems.append("empty reply")
     if turn["tool"] and turn["tool"] not in called:
         problems.append(f"expected {turn['tool']}, used {', '.join(called) or 'no tool'}")
-    if turn["contains"] and turn["contains"].lower() not in reply.lower():
-        problems.append(f"reply lacks '{turn['contains']}'")
+    wanted = turn["contains"]
+    if isinstance(wanted, str):
+        wanted = (wanted,)
+    if wanted and not any(w.lower() in reply.lower() for w in wanted):
+        problems.append(f"reply lacks '{wanted[0]}'")  # numbers may be said as words
     if turn["starts"] and not reply.strip().startswith(turn["starts"]):
         problems.append(f"reply doesn't start with '{turn['starts']}'")
     style = style_eval.check(reply, turn["kind"])

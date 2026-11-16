@@ -182,6 +182,8 @@ def test_copied_example_line_is_retried_before_it_is_spoken(monkeypatch):
     assert spoken == ["Goats, sir.", "Sturdy animals."]
     assert seen[1][-1]["content"] == brain.PARROT_NUDGE.format(message="Goats.")
     assert all(m.get("content") != example for m in seen[1])  # the copy is not kept in history
+    assert config.VOICE_EXAMPLES in seen[0][0]["content"]
+    assert config.VOICE_EXAMPLES not in seen[1][0]["content"]  # the retry can't copy again
 
 
 def test_one_sentence_copy_is_caught_too(monkeypatch):

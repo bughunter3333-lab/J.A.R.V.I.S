@@ -286,6 +286,10 @@ def _respond(message: str, session: str, trace: dict):
             parrot_retried = True
             round_out.sent.clear()
             round_out.buffer = ""
+            # The retry gets no examples at all: with them still in view, qwen3 often
+            # copied the same line a second time (seen in the simulation).
+            messages[0] = {"role": "system",
+                           "content": messages[0]["content"].replace(config.VOICE_EXAMPLES, "")}
             messages.append({"role": "user", "content": PARROT_NUDGE.format(message=message)})
             continue
         reply = text.strip()
