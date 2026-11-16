@@ -108,7 +108,10 @@ def talk_stream(request: ChatRequest):
 
     def events():
         try:
+            from listener import note_spoken
             for event in brain.respond_events(request.message, request.session):
+                if event["type"] == "sentence":
+                    note_spoken(event["text"])  # so the mic can tell his voice from sir's
                 if event["type"] == "done":
                     event["approval"] = approvals.pending(request.session)
                 yield json.dumps(event) + "\n"
@@ -198,8 +201,12 @@ def list_reminders():
 def due_reminders():
     """Reminders that have gone off and haven't been announced yet. The HUD polls this
     and says each one out loud; each is handed out only once."""
+    from listener import note_spoken
     reminders.fire_due()
-    return reminders.take_unannounced()
+    due = reminders.take_unannounced()
+    for item in due:
+        note_spoken(str(item.get("message", "")))
+    return due
 
 
 @app.get("/stats")

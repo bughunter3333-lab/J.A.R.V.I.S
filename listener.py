@@ -124,6 +124,8 @@ class Listener:
         self.conversation = False
         self._set_wake_word(True)
         farewell = config.CONVERSATION_FAREWELL if reason == "phrase" else ""
+        if farewell:
+            note_spoken(farewell)
         self.emit("conversation", active=False, reason=reason, farewell=farewell)
 
     def _watch_idle(self) -> None:
@@ -163,7 +165,9 @@ class Listener:
                 break
             if not self._running:
                 break
-            if heard and talk.is_real_speech(heard):
+            if heard and is_echo(heard):
+                self.emit("echo", text=heard.strip())  # his own voice from the speakers: ignore
+            elif heard and talk.is_real_speech(heard):
                 self._last_activity = time.monotonic()
                 if self.conversation and is_conversation_end(heard):
                     self.end_conversation("phrase")
@@ -201,5 +205,34 @@ class Listener:
             for event in events:
                 last_id = event["id"]
                 yield f"id: {event['id']}\ndata: {json.dumps(event)}\n\n"
+
+# ------------------------------------------------------------------ echo guard
+# What Jarvis said recently. If the mic picks his own voice up from the speakers, the
+# transcript matches one of these and is dropped instead of being answered.
+_SPOKEN: deque = deque(maxlen=60)
+ECHO_SECONDS = 90
+
+
+def _norm_words(text: str) -> list[str]:
+    return re.findall(r"[a-z0-9']+", text.lower().replace("\u2019", "'"))
+
+
+def note_spoken(text: str) -> None:
+    _SPOKEN.append((time.monotonic(), text))
+
+
+def is_echo(heard: str) -> bool:
+    words = _norm_words(heard)
+    if not words:
+        return False
+    cutoff = time.monotonic() - ECHO_SECONDS
+    recent = [t for when, t in _SPOKEN if when >= cutoff]
+    if not recent:
+        return False
+    said = set(_norm_words(" ".join(recent)))
+    if len(words) < 4:  # short: only an exact repeat of something he said counts
+        return any(_norm_words(t) == words for t in recent)
+    return sum(w in said for w in words) / len(words) >= 0.8
+
 
 listener = Listener()

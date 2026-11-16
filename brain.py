@@ -217,6 +217,8 @@ class _Sentences:
         if self.sent and copies_example(sentence):
             return None  # "Ambitious, sir. I'll make no comment on the vegetables." (a copied tail)
         sentence = sentence.replace("!", ".")  # he never exclaims
+        if _words(sentence) and any(_words(sentence) == _words(said) for said in self.sent):
+            return None  # the model said this sentence already in this reply
         if any(SIR.search(said) for said in self.sent):
             # 'sir' once per reply: "Overcast, sir, and there's a 100%... tomorrow, sir."
             sentence = LEADING_SIR.sub("", EXTRA_SIR.sub("", sentence))
