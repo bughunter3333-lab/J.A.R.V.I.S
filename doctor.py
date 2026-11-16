@@ -69,6 +69,17 @@ def _manifest_count(models_dir: Path) -> int:
     return sum(1 for p in manifests.rglob("*") if p.is_file()) if manifests.is_dir() else 0
 
 
+def check_embed_model(models: list[str] | None) -> Check:
+    """Optional: without it, memory falls back to all facts and word-only note search."""
+    if models is None:
+        return Check("Memory model", "warn", "can't check, Ollama isn't running")
+    wanted = config.EMBED_MODEL if ":" in config.EMBED_MODEL else config.EMBED_MODEL + ":latest"
+    if wanted in models or config.EMBED_MODEL in models:
+        return Check("Memory model", "ok", f"{config.EMBED_MODEL} installed (facts and notes by meaning)")
+    return Check("Memory model", "warn", f"{config.EMBED_MODEL} not installed: memory works by keywords only",
+                 f"Run `ollama pull {config.EMBED_MODEL}` (about 270 MB).")
+
+
 def check_model_folder() -> Check:
     """Catches the 'moved the models but Ollama looks in the old place' problem."""
     default_dir = Path.home() / ".ollama" / "models"
@@ -146,7 +157,7 @@ def check_data_dir() -> Check:
 def run_checks(quick: bool = False) -> list[Check]:
     """quick=True skips the slower checks (GPU, packages) for the /health endpoint."""
     models = _ollama_models()
-    checks = [check_ollama(models), check_model(models), check_model_folder(), check_data_dir(),
+    checks = [check_ollama(models), check_model(models), check_embed_model(models), check_model_folder(), check_data_dir(),
               check_voice_model()]
     if not quick:
         checks = [check_python()] + checks + [check_gpu(), check_packages()]

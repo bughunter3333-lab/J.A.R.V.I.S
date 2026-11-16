@@ -112,7 +112,7 @@ def tool_call_in_text(text: str):
 
 SPEAKER_LABEL = re.compile(r"^(?:You|Jarvis|JARVIS|Assistant)\s*:\s*")
 # ---------------------------------------------------------------- context budget
-MODEL_OPTIONS = {"num_ctx": config.CONTEXT_TOKENS}
+MODEL_OPTIONS = {"num_ctx": config.CONTEXT_TOKENS, "num_predict": config.REPLY_TOKENS}
 CHARS_PER_TOKEN = 3.0  # English is ~4; 3 errs on the safe side
 CUT_NOTE = " [... cut to fit]"
 
@@ -188,12 +188,23 @@ def warm_up() -> None:
 
 
 def _system_prompt() -> str:
+    """The same text on every request. Facts about sir used to be appended here, but the
+    model reads the tool list after the system prompt, so every new fact made Ollama re-read
+    ~3,100 tokens of prompt and tools. They now travel with sir's message (facts_note)."""
+    return config.SYSTEM_PROMPT
+
+
+def facts_note(message: str) -> str:
+    """The facts about sir that matter for this message, as a note in front of it (not saved
+    to the history). Up to config.MEMORY_ALL_FACTS_UP_TO facts all go; beyond that only the
+    ones the embedding model finds related (semantic.relevant_facts)."""
+    import semantic
+
     facts = memory.all_facts()
     if not facts:
-        return config.SYSTEM_PROMPT
-    return config.SYSTEM_PROMPT + " Things you know about sir: " + " ".join(
-        f"({i}) {fact}" for i, fact in enumerate(facts, 1)
-    )
+        return ""
+    chosen = semantic.relevant_facts(message, facts)
+    return "(Things you know about sir: " + " ".join(f"({i}) {f}" for i, f in enumerate(chosen, 1)) + ")\n\n"
 
 
 STATUS = {
@@ -402,7 +413,7 @@ def _respond(message: str, session: str, trace: dict):
     history = memory.recent_messages(session)
     messages += history
     history_len = len(history)
-    messages.append({"role": "user", "content": with_tool_hint(message)})
+    messages.append({"role": "user", "content": facts_note(message) + with_tool_hint(message)})
     routed = preroute(message)
 
     # If sir asked Jarvis to remember something, hold the reply back until the
@@ -410,6 +421,7 @@ def _respond(message: str, session: str, trace: dict):
     hold_back = bool(ASKED_TO_REMEMBER.search(message))
     out = _Sentences()
     reply, called, nudged, pushed_to_act, parrot_retried = "", set(), False, False, False
+    cut_off = False
     # His last reply in this conversation. qwen3 repeats it word for word when sir only
     # acknowledges ("ok", "understood", "no problem"): the same error came out four times.
     last_said = next((m["content"] for m in reversed(messages[1:-1]) if isinstance(m, dict)
@@ -436,6 +448,8 @@ def _respond(message: str, session: str, trace: dict):
         for chunk in chat(model=config.MODEL, messages=messages, tools=list(tools.TOOLS.values()),
                           options=MODEL_OPTIONS, keep_alive=config.MODEL_KEEP_ALIVE,
                           think=False, stream=True):
+            if getattr(chunk, "done_reason", None) == "length":
+                cut_off = True  # hit config.REPLY_TOKENS mid-answer
             piece = chunk.message.content or ""
             text += piece
             if chunk.message.tool_calls:
@@ -519,6 +533,8 @@ def _respond(message: str, session: str, trace: dict):
         out = _Sentences()
         for sentence in out.add(reply + " "):
             yield {"type": "sentence", "text": sentence}
+    if cut_off and out.sent:
+        out.buffer = ""  # the cap stopped him mid-sentence: don't speak half a sentence
     for sentence in out.flush():
         yield {"type": "sentence", "text": sentence}
 

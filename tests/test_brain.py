@@ -80,11 +80,13 @@ def test_tool_loop_is_capped(monkeypatch):
     assert len(memory.recent_audit()) == config.MAX_TOOL_ROUNDS
 
 
-def test_facts_reach_the_system_prompt_in_new_conversations(monkeypatch):
+def test_facts_reach_the_model_in_new_conversations(monkeypatch):
     memory.add_fact("Sir's lucky number is 47.")
     seen = script(monkeypatch, say("47, sir."))
     brain.respond("what is my lucky number?", "brand-new")
-    assert "lucky number is 47" in seen[0][0]["content"]
+    assert "lucky number is 47" in seen[0][-1]["content"]          # with sir's message
+    assert seen[0][0]["content"] == config.SYSTEM_PROMPT            # the cached prefix never changes
+    assert memory.recent_messages("brand-new")[0]["content"] == "what is my lucky number?"  # not saved
 
 
 @pytest.mark.parametrize("reply,expected", [
@@ -443,3 +445,20 @@ def test_warm_up_reads_the_real_system_prompt_and_tools(monkeypatch):
     brain.warm_up()
     assert sent["messages"][0]["content"] == brain._system_prompt()
     assert len(sent["tools"]) == len(brain.tools.TOOLS) and sent["options"]["num_predict"] == 1
+
+
+# ---- a rambling reply must end -------------------------------------------------------
+
+def test_every_reply_has_a_length_cap(monkeypatch):
+    sent = {}
+    monkeypatch.setattr(brain, "chat", lambda **kw: sent.update(kw) or iter([say("Noon, sir.")]))
+    brain.respond("what time is it", "s")
+    assert sent["options"]["num_predict"] == config.REPLY_TOKENS
+
+
+def test_a_reply_cut_by_the_cap_never_ends_mid_sentence(monkeypatch):
+    first = say("Why did the robot cross the road? Because it was programmed to, sir. And then the")
+    last = SimpleNamespace(message=SimpleNamespace(content=" chicken", tool_calls=None), done_reason="length")
+    monkeypatch.setattr(brain, "chat", lambda **kw: iter([first, last]))
+    reply = brain.respond("Tell me a joke", "s")
+    assert reply == "Why did the robot cross the road? Because it was programmed to, sir."

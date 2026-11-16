@@ -87,11 +87,26 @@ def search_notes(query: str) -> str:
     """
     config.WORKSPACE.mkdir(parents=True, exist_ok=True)
     needle = query.strip().lower()
-    hits = []
-    for path in sorted(config.WORKSPACE.glob("*.txt")):
-        text = path.read_text(encoding="utf-8", errors="replace")
-        if needle in path.stem.lower() or needle in text.lower():
-            hits.append(f"{path.name}: {text[:200]}")
+    notes = [(path, path.read_text(encoding="utf-8", errors="replace"))
+             for path in sorted(config.WORKSPACE.glob("*.txt"))]
+    hits = [f"{path.name}: {text[:200]}" for path, text in notes
+            if needle in path.stem.lower() or needle in text.lower()]
+    if len(hits) < 5 and notes:
+        # Also find notes by what they are about ("the forensics one" -> lab-report.txt).
+        import semantic
+
+        try:
+            ranked = semantic.rank(query, [f"{p.stem.replace('-', ' ')}: {t[:1000]}" for p, t in notes])
+        except semantic.Unavailable:
+            ranked = []
+        # Similarity scores sit close together (0.45-0.75 for related and unrelated alike), so
+        # only notes near the best match count, and they are labelled as related, not exact.
+        best = ranked[0][0] if ranked else 0.0
+        for score, i in ranked[:3]:
+            line = f"{notes[i][0].name}: {notes[i][1][:200]}"
+            if (score >= config.NOTES_MIN_SIMILARITY and score >= best - 0.06
+                    and not any(h.startswith(notes[i][0].name + ":") for h in hits) and len(hits) < 5):
+                hits.append(line + " (related, not an exact match)")
     if not hits:
         return "No notes matched."
     return security.as_untrusted("saved notes", "\n".join(hits[:5]))

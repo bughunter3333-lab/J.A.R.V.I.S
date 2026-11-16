@@ -20,11 +20,23 @@ HISTORY_LIMIT = 12  # how many past messages are sent back to the model
 # The system prompt and tool list alone are about 3,100 tokens. 8192 costs roughly 0.6 GB
 # more GPU memory than 4096; lower it if the model no longer fits on the GPU.
 CONTEXT_TOKENS = 8192
-REPLY_TOKENS = 600  # room kept free for his answer
+# Longest answer per model call, in tokens (and the room kept free for it). A spoken reply
+# is 1-5 sentences, about 150 tokens. Without a cap a rambling reply never ended: in the
+# simulation "Tell me a joke" ran past 3,900 tokens and blocked every other request.
+REPLY_TOKENS = 400
 # How long Ollama keeps the model loaded after a reply. Ollama's own default is 5 minutes,
 # after which the next request waits for the whole model to load again. "-1" = forever,
 # "0" = unload at once (frees the GPU between requests, but every reply starts cold).
 MODEL_KEEP_ALIVE = "60m"
+
+# Memory by meaning (semantic.py). A small embedding model in Ollama finds the facts and
+# notes that relate to what sir said. Install it once with: ollama pull nomic-embed-text
+# Without it, Jarvis falls back to giving the model every fact and searching notes by words.
+EMBED_MODEL = "nomic-embed-text"
+MEMORY_ALL_FACTS_UP_TO = 8   # up to this many facts, all of them go with every request
+MEMORY_TOP_K = 6             # with more, only the most related ones (plus the 2 newest)
+MEMORY_MIN_SIMILARITY = 0.40 # below this a fact never counts as related (0-1)
+NOTES_MIN_SIMILARITY = 0.50  # search_notes offers related notes only near the best match, and above this
 MAX_TOOL_ROUNDS = 4  # stops the model looping on tool calls forever
 
 # Voice
