@@ -46,6 +46,7 @@ class Listener:
         self.wake_word = True
         self.conversation = False  # True between the wake word and "that's all"
         self._muted = False
+        self._muted_at = 0.0
         self._last_activity = time.monotonic()
         self._watchdog = None
 
@@ -94,7 +95,9 @@ class Listener:
 
     def mute(self, muted: bool) -> None:
         self._muted = muted
-        if not muted:
+        if muted:
+            self._muted_at = time.monotonic()
+        else:
             self._last_activity = time.monotonic()  # the idle clock starts when he stops talking
         if self._recorder:
             try:
@@ -133,6 +136,11 @@ class Listener:
         while self._running:
             time.sleep(1.0)
             limit = config.CONVERSATION_IDLE_TIMEOUT
+            if self._muted and time.monotonic() - self._muted_at > MUTE_MAX_SECONDS:
+                # The page that muted the mic never unmuted it (closed, reloaded, a sound that
+                # never finished playing). Without this he stays deaf until the server restarts.
+                self.mute(False)
+                self.emit("unmuted", reason="timeout")
             if (self.conversation and limit and not self._muted
                     and time.monotonic() - self._last_activity > limit):
                 self.end_conversation("idle")
@@ -193,6 +201,10 @@ class Listener:
             # A new page (or a page that outlived a server restart): start from now. Replaying
             # old "heard" events made a refreshed HUD answer the whole previous conversation again.
             last_id = newest
+            # A mute belongs to the page that asked for it. A page reloaded or closed while he
+            # was answering never lifts it, so a new page starts with the microphone open.
+            if self._muted:
+                self.mute(False)
             # "id:" lets the browser's automatic reconnect resume from here without gaps.
             yield f"id: {newest}\ndata: {json.dumps({'id': 0, 'type': 'state', 'state': self.state, 'conversation': self.conversation})}\n\n"
         yield "retry: 500\n\n"
@@ -211,6 +223,8 @@ class Listener:
 # transcript matches one of these and is dropped instead of being answered.
 _SPOKEN: deque = deque(maxlen=60)
 ECHO_SECONDS = 90
+# Longest the HUD may keep the microphone muted (thinking + speaking one reply).
+MUTE_MAX_SECONDS = 120
 
 
 def _norm_words(text: str) -> list[str]:
@@ -229,10 +243,18 @@ def is_echo(heard: str) -> bool:
     recent = [t for when, t in _SPOKEN if when >= cutoff]
     if not recent:
         return False
-    said = set(_norm_words(" ".join(recent)))
     if len(words) < 4:  # short: only an exact repeat of something he said counts
         return any(_norm_words(t) == words for t in recent)
-    return sum(w in said for w in words) / len(words) >= 0.8
+    # An echo is one stretch of his speech: compare with each thing he said, and with two
+    # in a row (the mic can catch the end of one sentence and the start of the next).
+    # Comparing with everything from the last 90 s pooled together dropped real
+    # follow-ups that only reused his vocabulary.
+    stretches = recent + [a + " " + b for a, b in zip(recent, recent[1:])]
+    for stretch in stretches:
+        said = set(_norm_words(stretch))
+        if sum(w in said for w in words) / len(words) >= 0.8:
+            return True
+    return False
 
 
 listener = Listener()
