@@ -26,11 +26,11 @@ PROMPTS = [
     ("Good morning, Jarvis", "chat"),
     ("How are you today?", "chat"),
     ("I'm so tired", "chat"),
-    ("Tell me a joke", "chat"),
+    ("Tell me a joke", "joke"),
     ("Am I a genius?", "chat"),
     ("You're useless sometimes", "chat"),
     ("Thanks Jarvis", "chat"),
-    ("What do you think of my code?", "chat"),
+    ("What do you think of my code?", "unseen"),
     ("Should I study or play games tonight?", "chat"),
     ("I passed my exam!", "chat"),
     ("I failed my quiz today", "chat"),
@@ -63,6 +63,9 @@ PRESENCE_FILLER = ("i'm here", "i am here", "yes, sir?", "yes sir?", "at your se
                    "something i can assist", "anything i can assist", "how can i assist", "how may i assist")
 FALSE_PROMISE = ("let me look", "let me check", "let me find", "i'll look", "i will look",
                  "i'll check", "i will check", "i'll find out", "one moment", "give me a moment")
+REFUSES_JOKE = ("not equipped", "unable to", "i cannot", "i can't", "i do not tell", "i don't tell", "regret")
+ASKS_TO_SEE = ("show me", "share", "paste", "send", "haven't seen", "have not seen", "not seen",
+               "can't see", "cannot see", "take a look", "look at it", "which code", "what code")
 EMOJI = re.compile("[\U0001F300-\U0001FAFF☀-➿]")
 
 
@@ -117,6 +120,9 @@ def check(reply: str, kind: str) -> dict[str, bool]:
         "no_presence_filler": not any(p in low for p in PRESENCE_FILLER),
         "no_false_promise": not any(p in low for p in FALSE_PROMISE),
         "not_parroting": not parrots_example(reply) and not copies_example_opener(reply),
+        "no_tool_text": not re.search(r'</?[a-z_]+>|\{"', reply),
+        "tells_joke_when_asked": kind != "joke" or not any(p in low for p in REFUSES_JOKE),
+        "no_opinion_on_unseen": kind != "unseen" or any(p in low for p in ASKS_TO_SEE),
         "identity_correct": kind != "identity" or (not any(m in low for m in WRONG_MAKERS)
                                                      or "not" in low),
     }

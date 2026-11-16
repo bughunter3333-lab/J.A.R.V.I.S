@@ -182,6 +182,8 @@ def test_copied_example_line_is_retried_before_it_is_spoken(monkeypatch):
     assert spoken == ["Goats, sir.", "Sturdy animals."]
     assert seen[1][-1]["content"] == brain.PARROT_NUDGE.format(message="Goats.")
     assert all(m.get("content") != example for m in seen[1])  # the copy is not kept in history
+    assert config.VOICE_EXAMPLES in seen[0][0]["content"]
+    assert config.VOICE_EXAMPLES not in seen[1][0]["content"]  # the retry can't copy again
 
 
 def test_one_sentence_copy_is_caught_too(monkeypatch):
@@ -257,3 +259,29 @@ def test_speaker_label_is_removed(monkeypatch):
 def test_purpose_statement_alone_is_filler(monkeypatch):
     script(monkeypatch, say("I am here to assist, sir."))
     assert brain.respond("You're useless sometimes", "s") == brain.ACKNOWLEDGE
+
+
+def test_weather_place_sir_never_said_becomes_home_city(monkeypatch):
+    seen_args = []
+    monkeypatch.setattr(brain.tools, "run_tool", lambda name, args, session="default", approved=False:
+                        seen_args.append(args) or "Sydney: now 22°C.")
+    script(monkeypatch, call("get_weather", place="London"), say("22 degrees in Sydney, sir."))
+    brain.respond("Weather?", "s")
+    assert seen_args == [{"place": ""}]
+
+
+def test_weather_place_sir_did_say_is_kept(monkeypatch):
+    seen_args = []
+    monkeypatch.setattr(brain.tools, "run_tool", lambda name, args, session="default", approved=False:
+                        seen_args.append(args) or "Paris: now 9°C.")
+    script(monkeypatch, call("get_weather", place="Paris, France"), say("Nine degrees in Paris, sir."))
+    brain.respond("What's the weather in Paris?", "s")
+    assert seen_args == [{"place": "Paris, France"}]
+
+
+def test_tool_call_written_as_tag_is_run_not_spoken(monkeypatch):
+    spelled = '<look_up>\n{"kind": "definition", "topic": "phishing"}\n</look_up>'
+    got = brain.tool_call_in_text(spelled)
+    assert got.tool_calls[0].function.name == "look_up"
+    assert got.tool_calls[0].function.arguments == {"kind": "definition", "topic": "phishing"}
+    assert brain.tool_call_in_text("<not_a_tool>{\"a\": 1}</not_a_tool>") is None

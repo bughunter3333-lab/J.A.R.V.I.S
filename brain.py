@@ -72,11 +72,23 @@ def copies_example(sentence: str) -> bool:
 # often inside a tag or code fence) instead of making it. That must never be spoken;
 # it is turned into the real call.
 TOOL_TEXT_WRAPPER = re.compile(r"</?[a-z_]+>|```(?:json)?", re.I)
+TAGGED_CALL = re.compile(r"^\s*<([a-z_]+)>\s*(\{.*\})\s*</\1>\s*$", re.S)
 
 
 def tool_call_in_text(text: str):
     """The tool call(s) a reply spells out as JSON, as one ollama Message, else None.
     Only when the reply is nothing but calls to real tools."""
+    # '<look_up>{"kind": "definition", "topic": "phishing"}</look_up>': the tag is the tool name
+    # and the JSON is just its arguments (seen in the simulation, spoken aloud as-is).
+    tagged = TAGGED_CALL.match(text or "")
+    if tagged and tagged.group(1) in tools.TOOLS:
+        try:
+            args = json.loads(tagged.group(2))
+        except ValueError:
+            args = None
+        if isinstance(args, dict) and "name" not in args:
+            call = Message.ToolCall(function=Message.ToolCall.Function(name=tagged.group(1), arguments=args))
+            return Message(role="assistant", content="", tool_calls=[call])
     body = TOOL_TEXT_WRAPPER.sub(" ", text or "").strip()
     if not body.startswith("{"):
         return None
@@ -241,6 +253,19 @@ def _answer_approval(message: str, session: str, trace: dict) -> str | None:
     return f"Done, sir. {result}"
 
 
+def _grounded(name: str, args: dict, messages: list) -> dict:
+    """Drop a weather place sir never mentioned. Playing a British butler, the model liked
+    to fill in 'London' when sir just said 'Weather?' (seen in the simulation); an empty
+    place means his home city."""
+    place = str(args.get("place") or "").strip()
+    if name == "get_weather" and place:
+        said = " ".join(str(m.get("content", "")) for m in messages
+                        if isinstance(m, dict) and m.get("role") == "user").lower()
+        if place.split(",")[0].strip().lower() not in said:
+            args["place"] = ""
+    return args
+
+
 def _respond(message: str, session: str, trace: dict):
     memory.init_db()
     settled = _answer_approval(message, session, trace)
@@ -286,6 +311,10 @@ def _respond(message: str, session: str, trace: dict):
             parrot_retried = True
             round_out.sent.clear()
             round_out.buffer = ""
+            # The retry gets no examples at all: with them still in view, qwen3 often
+            # copied the same line a second time (seen in the simulation).
+            messages[0] = {"role": "system",
+                           "content": messages[0]["content"].replace(config.VOICE_EXAMPLES, "")}
             messages.append({"role": "user", "content": PARROT_NUDGE.format(message=message)})
             continue
         reply = text.strip()
@@ -303,7 +332,8 @@ def _respond(message: str, session: str, trace: dict):
                 called.add(name)
                 trace["tools"].append(name)
                 yield {"type": "status", "text": STATUS.get(name, "Working on it")}
-                result = tools.run_tool(name, dict(call.function.arguments or {}), session)
+                args = _grounded(name, dict(call.function.arguments or {}), messages)
+                result = tools.run_tool(name, args, session)
                 messages.append({"role": "tool", "tool_name": name, "content": result})
             continue
         false_claim = (
