@@ -16,6 +16,7 @@ import config
 import doctor
 import approvals
 import memory
+import security
 import reminders
 
 HUD_PAGE = config.BASE_DIR / "ui" / "index.html"
@@ -101,6 +102,29 @@ def health():
 def hud():
     """The holographic interface. Served from here so the page and the API share one origin."""
     return FileResponse(HUD_PAGE, media_type="text/html")
+
+
+class FeedbackRequest(BaseModel):
+    turn: int
+    rating: int = Field(..., description="1 = good reply, -1 = bad reply")
+    correction: str = Field("", max_length=1000, description="what he should have said (optional)")
+
+
+@app.post("/feedback")
+def feedback(request: FeedbackRequest):
+    """Sir rates one reply (the 'turn' id from the reply's done event). Used to fine-tune him:
+    python training\\build_dataset.py picks rated replies up."""
+    if request.rating not in (1, -1):
+        raise HTTPException(status_code=422, detail="rating must be 1 or -1")
+    if not memory.rate_turn(request.turn, request.rating, security.redact(request.correction)):
+        raise HTTPException(status_code=404, detail="No such reply.")
+    return {"ok": True}
+
+
+@app.get("/feedback")
+def list_feedback():
+    """Every rated reply, oldest first."""
+    return memory.rated_turns()
 
 
 @app.post("/chat")

@@ -238,8 +238,14 @@ def respond_events(message: str, session: str = "default"):
     """
     started = time.perf_counter()
     trace = {"rounds": 0, "tools": []}
+    memory.init_db()
+    audit_mark = memory.last_audit_id()
     try:
-        yield from _respond(message, session, trace)
+        for event in _respond(message, session, trace):
+            if event["type"] == "done":
+                # Kept so sir can rate this reply in the HUD (see memory.rate_turn).
+                event["turn"] = memory.add_turn(session, message, event["reply"], memory.audit_since(audit_mark))
+            yield event
     except Exception as exc:
         elapsed = (time.perf_counter() - started) * 1000
         memory.add_trace(session, config.MODEL, elapsed, trace["rounds"], trace["tools"],

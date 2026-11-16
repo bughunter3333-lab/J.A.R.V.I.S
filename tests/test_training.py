@@ -8,7 +8,7 @@ from training import build_dataset, install_model
 
 @pytest.fixture(scope="module")
 def examples():
-    return build_dataset.build()
+    return build_dataset.build(use_feedback=False)  # never sir's real ratings in a test
 
 
 def test_dataset_never_contains_an_eval_question(examples):
@@ -20,7 +20,7 @@ def test_dataset_never_contains_an_eval_question(examples):
 def test_leak_guard_refuses_a_copied_eval_question(monkeypatch):
     monkeypatch.setattr(build_dataset, "CHAT", [("Tell me a joke", "Why did the packet cross the road, sir?")])
     with pytest.raises(ValueError, match="copies an eval question"):
-        build_dataset.build()
+        build_dataset.build(use_feedback=False)
 
 
 def test_dataset_passes_its_safety_checks(examples):
@@ -82,3 +82,70 @@ def test_compare_verdict_needs_both_tests():
     assert "keep qwen3:8b" in compare.verdict(_fake("qwen3:8b", 97, 70), _fake("jarvis-x", 94, 95))
     assert "No clear gain" in compare.verdict(_fake("qwen3:8b", 97, 70), _fake("jarvis-x", 97, 70))
     assert "jarvis-x" in compare.table([_fake("qwen3:8b", 97, 70), _fake("jarvis-x", 98, 90)])
+
+
+
+# ---- learning from sir's ratings in the HUD -----------------------------------------
+
+@pytest.fixture
+def rated(tmp_path, monkeypatch):
+    import config
+    import memory
+    monkeypatch.setattr(config, "DATA_DIR", tmp_path)
+    monkeypatch.setattr(config, "DB_PATH", tmp_path / "t.db")
+    memory.init_db()
+
+    def turn(message, reply, calls=(), rating=1, correction=""):
+        tid = memory.add_turn("s", message, reply, [dict(c) for c in calls])
+        memory.rate_turn(tid, rating, correction)
+        return tid
+    return turn
+
+
+def test_good_and_corrected_replies_become_examples(rated):
+    rated("How warm is it in Perth?", "Twenty-eight degrees in Perth, sir.",
+          calls=[{"tool": "get_weather", "args": {"place": "Perth"}, "result": "Perth: now 28°C", "ok": True}])
+    rated("Cheer me up", "As an AI I cannot feel.", rating=-1, correction="Chin up, sir. Tomorrow is another go.")
+    pairs, counts = build_dataset.feedback_examples(build_dataset.eval_questions())
+    assert counts["used"] == 2
+    perth, cheer = dict(pairs)["How warm is it in Perth?"], dict(pairs)["Cheer me up"]
+    assert perth[0]["tool_calls"][0]["function"]["name"] == "get_weather"   # the tool call is learned too
+    assert perth[-1]["content"] == "Twenty-eight degrees in Perth, sir."
+    assert cheer[-1]["content"] == "Chin up, sir. Tomorrow is another go."  # the correction, not the bad reply
+
+
+@pytest.mark.parametrize("message,calls,rating,correction,why", [
+    ("Cheer me up", [], -1, "", "bad, no correction"),
+    ("What's on my clipboard?", [{"tool": "clipboard", "args": {"action": "read"}, "result": "x", "ok": True}],
+     1, "", "private tool"),
+    ("yes", [{"tool": "pc_control", "args": {"action": "lock_screen"}, "result": "Screen locked.", "ok": True}],
+     1, "", "approval answer"),
+    ("Tell me a joke", [], 1, "", "eval question"),
+])
+def test_what_is_never_trained_on(rated, message, calls, rating, correction, why):
+    rated(message, "Done, sir.", calls=calls, rating=rating, correction=correction)
+    pairs, counts = build_dataset.feedback_examples(build_dataset.eval_questions())
+    assert pairs == [] and counts[why] == 1
+
+
+def test_ratings_go_into_the_dataset_and_can_be_left_out(rated):
+    rated("Cheer me up", "Chin up, sir.")
+    with_ratings = build_dataset.build()
+    without = build_dataset.build(use_feedback=False)
+    assert len(with_ratings) == len(without) + 1
+
+
+def test_rating_api(tmp_path, monkeypatch):
+    import config
+    import memory
+    from fastapi.testclient import TestClient
+    import main
+    monkeypatch.setattr(config, "DATA_DIR", tmp_path)
+    monkeypatch.setattr(config, "DB_PATH", tmp_path / "a.db")
+    memory.init_db()
+    tid = memory.add_turn("s", "hi", "Good evening, sir.", [])
+    client = TestClient(main.app)
+    assert client.post("/feedback", json={"turn": tid, "rating": -1, "correction": "Evening, sir."}).json() == {"ok": True}
+    assert client.get("/feedback").json()[0]["correction"] == "Evening, sir."
+    assert client.post("/feedback", json={"turn": 999, "rating": 1}).status_code == 404
+    assert client.post("/feedback", json={"turn": tid, "rating": 5}).status_code == 422

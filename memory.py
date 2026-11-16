@@ -22,6 +22,10 @@ def init_db() -> None:
                 id INTEGER PRIMARY KEY, fact TEXT UNIQUE, ts TEXT);
             CREATE TABLE IF NOT EXISTS audit (
                 id INTEGER PRIMARY KEY, ts TEXT, tool TEXT, args TEXT, result TEXT, ok INTEGER);
+            CREATE TABLE IF NOT EXISTS turns (
+                id INTEGER PRIMARY KEY, ts TEXT, session TEXT, message TEXT, reply TEXT, calls TEXT);
+            CREATE TABLE IF NOT EXISTS feedback (
+                id INTEGER PRIMARY KEY, ts TEXT, turn_id INTEGER UNIQUE, rating INTEGER, correction TEXT);
             CREATE TABLE IF NOT EXISTS traces (
                 id INTEGER PRIMARY KEY, ts TEXT, session TEXT, model TEXT,
                 latency_ms INTEGER, rounds INTEGER, tools TEXT, ok INTEGER, error TEXT);
@@ -120,3 +124,44 @@ def clear_session(session: str) -> int:
     """Forget one conversation's history (facts and the audit log are kept)."""
     with closing(_connect()) as db, db:
         return db.execute("DELETE FROM messages WHERE session = ?", (session,)).rowcount
+
+
+# ---------------------------------------------------------------- learning from sir
+# Each reply is kept as a "turn" (what sir said, the tool calls, what Jarvis said), so sir
+# can rate it in the HUD. training/build_dataset.py turns rated turns into examples.
+
+def last_audit_id() -> int:
+    with closing(_connect()) as db:
+        return db.execute("SELECT COALESCE(MAX(id), 0) FROM audit").fetchone()[0]
+
+
+def audit_since(audit_id: int) -> list[dict]:
+    """Tool calls logged after audit_id (secrets already redacted by tools.run_tool)."""
+    with closing(_connect()) as db:
+        rows = db.execute("SELECT tool, args, result, ok FROM audit WHERE id > ? ORDER BY id", (audit_id,)).fetchall()
+    return [{"tool": t, "args": json.loads(a), "result": r, "ok": bool(ok)} for t, a, r, ok in rows]
+
+
+def add_turn(session: str, message: str, reply: str, calls: list[dict]) -> int:
+    with closing(_connect()) as db, db:
+        return db.execute("INSERT INTO turns (ts, session, message, reply, calls) VALUES (?, ?, ?, ?, ?)",
+                          (_now(), session, message, reply, json.dumps(calls, default=str))).lastrowid
+
+
+def rate_turn(turn_id: int, rating: int, correction: str = "") -> bool:
+    """Sir's verdict on one reply: +1 good, -1 bad (with what he should have said, if given).
+    Rating the same reply again replaces the earlier verdict. False if there is no such turn."""
+    with closing(_connect()) as db, db:
+        if not db.execute("SELECT 1 FROM turns WHERE id = ?", (turn_id,)).fetchone():
+            return False
+        db.execute("INSERT OR REPLACE INTO feedback (ts, turn_id, rating, correction) VALUES (?, ?, ?, ?)",
+                   (_now(), turn_id, 1 if rating > 0 else -1, correction.strip()))
+    return True
+
+
+def rated_turns() -> list[dict]:
+    with closing(_connect()) as db:
+        rows = db.execute("SELECT t.id, t.message, t.reply, t.calls, f.rating, f.correction, f.ts "
+                          "FROM feedback f JOIN turns t ON t.id = f.turn_id ORDER BY f.id").fetchall()
+    return [{"turn": i, "message": m, "reply": r, "calls": json.loads(c), "rating": rt, "correction": co, "ts": ts}
+            for i, m, r, c, rt, co, ts in rows]
