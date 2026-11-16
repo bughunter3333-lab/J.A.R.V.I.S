@@ -57,6 +57,18 @@ With the server running, open http://127.0.0.1:8000/hud (any browser). It shows 
 - **Approvals:** for anything risky he asks first and shows **Approve / Deny**. Saying "yes" or "no" works too.
 - Replies go through `/chat/stream`, so tools, memory, approvals and the audit log all apply. His voice comes from `/speak` (Kokoro), with the browser voice as a fallback.
 
+## Know your voice
+
+Jarvis can learn your voice so that, with the HUD's local microphone, he ignores the TV and other people. It is off until you enrol:
+
+```powershell
+cd D:\jarvis-x; .\.venv\Scripts\Activate.ps1; pip install -r requirements.txt; python voiceid.py --enroll
+```
+
+You read five short sentences; he saves a "voiceprint" (Resemblyzer, offline, in `data\voiceprint.npy`). Then set the threshold for your room: run `python voiceid.py --check` while you speak, and again while someone else or the TV talks, and set `VOICE_ID_THRESHOLD` in `config.py` between the two scores (default 0.75, a starting guess). `python voiceid.py --forget` deletes the voiceprint; `VOICE_ID = False` switches it off.
+
+Limits: speech too short to judge ("yes", "stop") is still accepted, or one-word answers would stop working; and it is a filter against the TV and guests, not a lock (a recording of your voice would get through).
+
 ## Talk to him
 
 ```powershell

@@ -175,6 +175,8 @@ class Listener:
                 break
             if heard and is_echo(heard):
                 self.emit("echo", text=heard.strip())  # his own voice from the speakers: ignore
+            elif heard and talk.is_real_speech(heard) and not_sirs_voice(recorder):
+                self.emit("not_sir", text=heard.strip())  # the TV or a guest (voiceid.py): ignore
             elif heard and talk.is_real_speech(heard):
                 self._last_activity = time.monotonic()
                 if self.conversation and is_conversation_end(heard):
@@ -217,6 +219,22 @@ class Listener:
             for event in events:
                 last_id = event["id"]
                 yield f"id: {event['id']}\ndata: {json.dumps(event)}\n\n"
+
+# ------------------------------------------------------------------ voice ID
+def not_sirs_voice(recorder) -> bool:
+    """True only when voice ID is on, sir is enrolled, and this clearly isn't his voice.
+    Can't tell (short, no audio, library missing) -> False: never lock sir out."""
+    import voiceid
+
+    if not voiceid.active():
+        return False
+    audio = getattr(recorder, "last_transcription_bytes", None)
+    if audio is None:
+        audio = getattr(recorder, "audio", None)
+    if audio is None:
+        return False
+    return voiceid.is_sir(audio) is False
+
 
 # ------------------------------------------------------------------ echo guard
 # What Jarvis said recently. If the mic picks his own voice up from the speakers, the

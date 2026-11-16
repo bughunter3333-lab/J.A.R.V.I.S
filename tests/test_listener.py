@@ -16,6 +16,7 @@ class FakeRecorder:
         for p in phrases:
             self.phrases.put(p)
         self.mic_on, self.closed = True, False
+        self.last_transcription_bytes = [0.0] * 16000  # RealtimeSTT keeps the last utterance's audio
         self.use_wake_words = True  # the real RealtimeSTT attribute conversation mode flips
 
     def text(self):
@@ -376,3 +377,30 @@ def test_follow_ups_that_reuse_his_words_are_not_echoes(monkeypatch):
     # the real thing still counts, including the end of one sentence and the start of the next
     assert listener_module.is_echo("lasting for a short period of time sir")
     assert listener_module.is_echo("teal sir the volume has been reduced")
+
+
+# ---- know sir's voice -----------------------------------------------------------------
+
+def test_another_voice_is_ignored_when_enrolled(monkeypatch):
+    import voiceid
+    monkeypatch.setattr(voiceid, "active", lambda: True)
+    verdicts = iter([False, True])
+    monkeypatch.setattr(voiceid, "is_sir", lambda audio: next(verdicts))
+    lst, made = make_listener(["Turn the volume up", "What time is it?"])
+    lst.start(wake_word=False)
+    heard = wait_for(lst, "heard")
+    assert heard["text"] == "What time is it?"
+    assert any(e["type"] == "not_sir" and e["text"] == "Turn the volume up" for e in lst.events_after(0, 0))
+    lst.stop()
+
+
+def test_cant_tell_or_not_enrolled_never_locks_sir_out(monkeypatch):
+    import voiceid
+    monkeypatch.setattr(voiceid, "active", lambda: True)
+    monkeypatch.setattr(voiceid, "is_sir", lambda audio: None)   # too short to judge
+    lst, _ = make_listener(["yes"])
+    lst.start(wake_word=False)
+    assert wait_for(lst, "heard")["text"] == "yes"
+    lst.stop()
+    monkeypatch.setattr(voiceid, "active", lambda: False)        # not enrolled
+    assert listener_module.not_sirs_voice(type("R", (), {"last_transcription_bytes": [0.1]})()) is False

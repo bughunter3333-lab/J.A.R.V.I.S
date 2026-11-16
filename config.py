@@ -71,6 +71,12 @@ CONVERSATION_END_PHRASES = (
     "stop listening", "go to sleep", "dismissed",
 )
 CONVERSATION_IDLE_TIMEOUT = 120
+
+# Know sir's voice (voiceid.py). Off until sir enrols with: python voiceid.py --enroll
+# After that, requests heard by the HUD's local microphone in another voice are ignored.
+VOICE_ID = True                # False switches it off even when enrolled
+VOICE_ID_THRESHOLD = 0.75      # how close to sir's voiceprint (about -1..1); see voiceid.py --check
+VOICE_ID_MIN_SECONDS = 1.0     # shorter speech can't be judged and is accepted
 CONVERSATION_FAREWELL = "Very good, sir. I'll be here if you need me."
 
 # Folders the "files" tool may search and read (the notes workspace is always included).

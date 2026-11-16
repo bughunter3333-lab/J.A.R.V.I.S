@@ -19,6 +19,8 @@ sounddevice
 RealtimeSTT[faster-whisper,openwakeword]
 pvporcupine==1.9.5  # "Jarvis" wake word (offline, no key; the version RealtimeSTT expects)
 silero-vad
+resemblyzer  # "know your voice" (voiceid.py), offline speaker recognition
+setuptools<81  # resemblyzer's webrtcvad imports pkg_resources
 
 # Tests
 pytest
