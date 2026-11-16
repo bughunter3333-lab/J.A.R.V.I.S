@@ -238,3 +238,25 @@ def test_reminders_due_endpoint(monkeypatch):
     client = TestClient(main.app)
     assert [r["message"] for r in client.get("/reminders/due").json()] == ["drink water"]
     assert client.get("/reminders/due").json() == []
+
+
+@pytest.mark.parametrize("page,target", [("display", "display"), ("Display settings", "display"),
+                                         ("bluetooth", "bluetooth"), ("wifi", "network-wifi"),
+                                         ("ms-settings:sound", "sound")])
+def test_settings_pages_are_a_fixed_list(page, target):
+    assert pc.settings_page(page) == target
+
+
+@pytest.mark.parametrize("page", ["ms-settings:../../cmd", "registry", "format c"])
+def test_unknown_settings_pages_are_refused(page):
+    with pytest.raises(pc.NotAllowed):
+        pc.settings_page(page)
+
+
+def test_open_settings_needs_no_approval_and_opens_the_page(monkeypatch):
+    import os
+    opened = []
+    monkeypatch.setattr(pc.sys, "platform", "win32")
+    monkeypatch.setattr(os, "startfile", lambda target: opened.append(target), raising=False)
+    out = tools.run_tool("pc_control", {"action": "open_settings", "url": "display"}, "s")
+    assert out == "Opened the display settings." and opened == ["ms-settings:display"]

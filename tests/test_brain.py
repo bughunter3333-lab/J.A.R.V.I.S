@@ -367,3 +367,21 @@ def test_routed_tool_runs_before_the_model_answers(monkeypatch):
 def test_a_sentence_repeated_in_one_reply_is_said_once(monkeypatch):
     script(monkeypatch, say("Sixty, sir. Sixty, sir. A tidy number."))
     assert brain.respond("What's 15 times 4?", "s") == "Sixty, sir. A tidy number."
+
+
+def test_repeating_the_last_reply_is_retried_before_it_is_spoken(monkeypatch):
+    memory.add_message("s", "user", "open display settings")
+    memory.add_message("s", "assistant", "I'm afraid that didn't work, sir. Only web addresses open.")
+    seen = script(monkeypatch, say("I'm afraid that didn't work, sir. Only web addresses open."),
+                  say("Very good, sir."))
+    events = list(brain.respond_events("Understood understood", "s"))
+    assert [e["text"] for e in events if e["type"] == "sentence"] == ["Very good, sir."]
+    assert "do not repeat your previous reply" in seen[1][-1]["content"]
+
+
+def test_the_same_report_after_a_tool_call_is_fine(monkeypatch):
+    memory.add_message("s", "user", "turn it down")
+    memory.add_message("s", "assistant", "The volume has been reduced, sir.")
+    seen = script(monkeypatch, call("get_current_time"), say("The volume has been reduced, sir."))
+    assert brain.respond("lower still", "s") == "The volume has been reduced, sir."
+    assert len(seen) == 2

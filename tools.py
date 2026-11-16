@@ -287,8 +287,10 @@ def pc_control(action: str, url: str = "") -> str:
             mute (mute or unmute),
             play_pause (play, pause or resume), next_track (skip this song, next song),
             previous_track (go back to the previous song, replay the last one),
-            lock_screen (lock the computer), open_website (open a site in the browser).
-        url: Only for open_website: the website address, e.g. "youtube.com".
+            lock_screen (lock the computer), open_website (open a site in the browser),
+            open_settings (open a Windows Settings page: display, sound, bluetooth, wifi, ...).
+        url: For open_website: the website address, e.g. "youtube.com". For open_settings:
+            the page name, e.g. "display" (never an ms-settings: address with open_website).
     """
     try:
         return pc.control(action, url)
@@ -521,6 +523,16 @@ TOOLS = {
 }
 
 
+def _precheck(name: str, args: dict) -> str | None:
+    """Why this call would be refused, if it would be, without running it."""
+    if name == "pc_control":
+        try:
+            pc.precheck(str(args.get("action", "")), str(args.get("url", "")))
+        except pc.NotAllowed as exc:
+            return str(exc)
+    return None
+
+
 def run_tool(name: str, args: dict, session: str = "default", approved: bool = False) -> str:
     """Run one tool by name, enforce the registry and approvals, and write the audit log.
 
@@ -529,6 +541,8 @@ def run_tool(name: str, args: dict, session: str = "default", approved: bool = F
     """
     if name not in TOOLS:
         result, ok = f"Refused: there is no tool called '{name}'.", False
+    elif not approved and approvals.needs_approval(name, args) and (refusal := _precheck(name, args)):
+        result, ok = f"Refused: {refusal}", False  # never ask sir to approve what would be refused
     elif not approved and approvals.needs_approval(name, args):
         req = approvals.request(session, name, args)
         result, ok = (f"WAITING FOR APPROVAL: I need sir's permission to {req['summary']}. "

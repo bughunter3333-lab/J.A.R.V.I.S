@@ -16,7 +16,8 @@ import memory
 
 YES = re.compile(r"^\s*(?:yes|yeah|yep|yup|sure|ok(?:ay)?|go ahead|do it|confirm(?:ed)?|approved?|"
                  r"please do|affirmative|proceed|go for it)\b[\s,.!]*(?:please|sir|jarvis|do it|go ahead)?[\s.!]*$", re.I)
-NO = re.compile(r"^\s*(?:no|nope|nah|don'?t|do not|cancel|stop|never ?mind|deny|denied|abort)\b", re.I)
+NO = re.compile(r"^\s*(?!no (?:problem|worries|rush|stress)\b)"
+                r"(?:no|nope|nah|don'?t|do not|cancel|stop|never ?mind|deny|denied|abort)\b", re.I)
 
 
 def init_db() -> None:
