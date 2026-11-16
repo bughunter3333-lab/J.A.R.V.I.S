@@ -259,3 +259,21 @@ def test_speaker_label_is_removed(monkeypatch):
 def test_purpose_statement_alone_is_filler(monkeypatch):
     script(monkeypatch, say("I am here to assist, sir."))
     assert brain.respond("You're useless sometimes", "s") == brain.ACKNOWLEDGE
+
+
+def test_weather_place_sir_never_said_becomes_home_city(monkeypatch):
+    seen_args = []
+    monkeypatch.setattr(brain.tools, "run_tool", lambda name, args, session="default", approved=False:
+                        seen_args.append(args) or "Sydney: now 22°C.")
+    script(monkeypatch, call("get_weather", place="London"), say("22 degrees in Sydney, sir."))
+    brain.respond("Weather?", "s")
+    assert seen_args == [{"place": ""}]
+
+
+def test_weather_place_sir_did_say_is_kept(monkeypatch):
+    seen_args = []
+    monkeypatch.setattr(brain.tools, "run_tool", lambda name, args, session="default", approved=False:
+                        seen_args.append(args) or "Paris: now 9°C.")
+    script(monkeypatch, call("get_weather", place="Paris, France"), say("Nine degrees in Paris, sir."))
+    brain.respond("What's the weather in Paris?", "s")
+    assert seen_args == [{"place": "Paris, France"}]

@@ -241,6 +241,19 @@ def _answer_approval(message: str, session: str, trace: dict) -> str | None:
     return f"Done, sir. {result}"
 
 
+def _grounded(name: str, args: dict, messages: list) -> dict:
+    """Drop a weather place sir never mentioned. Playing a British butler, the model liked
+    to fill in 'London' when sir just said 'Weather?' (seen in the simulation); an empty
+    place means his home city."""
+    place = str(args.get("place") or "").strip()
+    if name == "get_weather" and place:
+        said = " ".join(str(m.get("content", "")) for m in messages
+                        if isinstance(m, dict) and m.get("role") == "user").lower()
+        if place.split(",")[0].strip().lower() not in said:
+            args["place"] = ""
+    return args
+
+
 def _respond(message: str, session: str, trace: dict):
     memory.init_db()
     settled = _answer_approval(message, session, trace)
@@ -307,7 +320,8 @@ def _respond(message: str, session: str, trace: dict):
                 called.add(name)
                 trace["tools"].append(name)
                 yield {"type": "status", "text": STATUS.get(name, "Working on it")}
-                result = tools.run_tool(name, dict(call.function.arguments or {}), session)
+                args = _grounded(name, dict(call.function.arguments or {}), messages)
+                result = tools.run_tool(name, args, session)
                 messages.append({"role": "tool", "tool_name": name, "content": result})
             continue
         false_claim = (
