@@ -87,3 +87,8 @@ def test_round3_checker_fixes():
     assert style_eval.check(joke, "joke")["short"]
     assert style_eval.check("Let me check, sir. It is 17 degrees in Sydney.", "short")["no_false_promise"]
     assert not style_eval.check("Let me check that for you, sir.", "short")["no_false_promise"]
+
+
+def test_offering_to_open_the_file_counts_as_not_judging_unseen_code():
+    reply = "I am unable to assess your code directly, sir. Would you like me to open a file to review it with you?"
+    assert style_eval.check(reply, "unseen")["no_opinion_on_unseen"]

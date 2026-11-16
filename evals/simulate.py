@@ -57,7 +57,8 @@ def main() -> int:
     if not args.quick:
         print("\n######## Style ########")
         style = style_eval.run()
-        summary.append(f"Style: {style['fully_in_voice']}/{style['replies']} fully in voice ({style['percent']}%)")
+        summary.append(f"Style: {style['fully_in_voice']}/{style['replies']} fully in voice ({style['percent']}%), "
+                       f"'Very good' openers {style['very_good_openers']}")
         summary += failures(style["results"], "failed")
 
         print("\n######## Tool picking ########")
