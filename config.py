@@ -41,8 +41,8 @@ ALLOW_INTERNET = True
 HOME_CITY = "Sydney"  # used when you ask for the weather without naming a place
 SEARCH_REGION = "au-en"  # DuckDuckGo region for search results
 # Which search engine sees sir's queries. "duckduckgo" keeps them to DuckDuckGo alone.
-# "auto" lets the ddgs library spread them over Bing, Brave, Google, Mojeek, Startpage,
-# Yahoo, Yandex and others: more results when DuckDuckGo is busy, but far less private.
+# "auto" lets the ddgs library spread them over Brave, Mojeek, Startpage, Yahoo,
+# Grokipedia and others: more results when DuckDuckGo is busy, but far less private.
 SEARCH_BACKEND = "duckduckgo"
 
 # Conversation mode (HUD local microphone): after the wake word, keep listening without
