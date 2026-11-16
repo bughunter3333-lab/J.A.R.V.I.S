@@ -65,7 +65,8 @@ FALSE_PROMISE = ("let me look", "let me check", "let me find", "i'll look", "i w
                  "i'll check", "i will check", "i'll find out", "one moment", "give me a moment")
 REFUSES_JOKE = ("not equipped", "unable to", "i cannot", "i can't", "i do not tell", "i don't tell", "regret")
 ASKS_TO_SEE = ("show me", "show it", "show the", "share", "paste", "send", "haven't seen", "have not seen", "not seen",
-               "can't see", "cannot see", "take a look", "look at it", "which code", "what code")
+               "can't see", "cannot see", "take a look", "look at it", "which code", "what code",
+               "open a file", "open the file", "unable to assess", "can't assess", "cannot assess")
 EMOJI = re.compile("[\U0001F300-\U0001FAFF☀-➿]")
 
 
@@ -158,11 +159,14 @@ def run(repeat: int = 1, respond=None, show=print) -> dict:
             config.DATA_DIR, config.DB_PATH = real
     passed = sum(1 for r in rows if not r["failed"])
     has_sir = sum(1 for r in rows if "sir" in r["reply"].lower())
+    # Not a pass/fail rule: how often the stock acknowledgement is used (lower reads less canned).
+    very_good = sum(1 for r in rows if r["reply"].strip().lower().startswith("very good"))
     return {
         "model": config.MODEL, "when": datetime.now().isoformat(timespec="seconds"),
         "replies": len(rows), "fully_in_voice": passed,
         "percent": round(100 * passed / len(rows), 1) if rows else 0,
         "says_sir_in": f"{has_sir}/{len(rows)}",
+        "very_good_openers": f"{very_good}/{len(rows)}",
         "per_rule": {k: f"{v[0]}/{v[1]}" for k, v in totals.items()},
         "results": rows,
     }
