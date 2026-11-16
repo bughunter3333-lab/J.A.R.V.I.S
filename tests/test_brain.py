@@ -277,3 +277,11 @@ def test_weather_place_sir_did_say_is_kept(monkeypatch):
     script(monkeypatch, call("get_weather", place="Paris, France"), say("Nine degrees in Paris, sir."))
     brain.respond("What's the weather in Paris?", "s")
     assert seen_args == [{"place": "Paris, France"}]
+
+
+def test_tool_call_written_as_tag_is_run_not_spoken(monkeypatch):
+    spelled = '<look_up>\n{"kind": "definition", "topic": "phishing"}\n</look_up>'
+    got = brain.tool_call_in_text(spelled)
+    assert got.tool_calls[0].function.name == "look_up"
+    assert got.tool_calls[0].function.arguments == {"kind": "definition", "topic": "phishing"}
+    assert brain.tool_call_in_text("<not_a_tool>{\"a\": 1}</not_a_tool>") is None

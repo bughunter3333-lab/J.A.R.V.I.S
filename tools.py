@@ -32,7 +32,8 @@ class ToolRefused(Exception):
 
 
 def get_current_time() -> str:
-    """Get the current local date and time."""
+    """Get the current local date and time. Use it for any question that depends on the time
+    or date now, such as 'is it past midnight?', 'is it late?' or 'what day is it?'."""
     return datetime.now().strftime("%A %d %B %Y, %I:%M %p")
 
 
@@ -415,6 +416,7 @@ def files(action: str, query: str) -> str:
 
 def clipboard(action: str, text: str = "") -> str:
     """Read what sir has copied, or put text on the clipboard so he can paste it.
+    Use "read" for 'what did I just copy?' or 'what's on my clipboard?'.
 
     Args:
         action: "read" to see the clipboard, or "write" to copy text onto it.

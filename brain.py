@@ -72,11 +72,23 @@ def copies_example(sentence: str) -> bool:
 # often inside a tag or code fence) instead of making it. That must never be spoken;
 # it is turned into the real call.
 TOOL_TEXT_WRAPPER = re.compile(r"</?[a-z_]+>|```(?:json)?", re.I)
+TAGGED_CALL = re.compile(r"^\s*<([a-z_]+)>\s*(\{.*\})\s*</\1>\s*$", re.S)
 
 
 def tool_call_in_text(text: str):
     """The tool call(s) a reply spells out as JSON, as one ollama Message, else None.
     Only when the reply is nothing but calls to real tools."""
+    # '<look_up>{"kind": "definition", "topic": "phishing"}</look_up>': the tag is the tool name
+    # and the JSON is just its arguments (seen in the simulation, spoken aloud as-is).
+    tagged = TAGGED_CALL.match(text or "")
+    if tagged and tagged.group(1) in tools.TOOLS:
+        try:
+            args = json.loads(tagged.group(2))
+        except ValueError:
+            args = None
+        if isinstance(args, dict) and "name" not in args:
+            call = Message.ToolCall(function=Message.ToolCall.Function(name=tagged.group(1), arguments=args))
+            return Message(role="assistant", content="", tool_calls=[call])
     body = TOOL_TEXT_WRAPPER.sub(" ", text or "").strip()
     if not body.startswith("{"):
         return None

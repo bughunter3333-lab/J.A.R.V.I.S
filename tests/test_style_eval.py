@@ -74,3 +74,8 @@ def test_joke_and_unseen_rules():
     assert style_eval.check("I told my firewall a joke, sir. It didn't let it through.", "joke")["tells_joke_when_asked"]
     assert not style_eval.check("It is clean and well structured, sir.", "unseen")["no_opinion_on_unseen"]
     assert style_eval.check("I haven't seen it yet, sir. Show me the file.", "unseen")["no_opinion_on_unseen"]
+
+
+def test_tool_text_is_not_in_voice():
+    assert not style_eval.check('<look_up>\n{"kind": "definition"}\n</look_up>', "explain")["no_tool_text"]
+    assert style_eval.check("Phishing is a scam that tricks you into giving up details, sir.", "explain")["no_tool_text"]

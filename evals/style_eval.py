@@ -120,6 +120,7 @@ def check(reply: str, kind: str) -> dict[str, bool]:
         "no_presence_filler": not any(p in low for p in PRESENCE_FILLER),
         "no_false_promise": not any(p in low for p in FALSE_PROMISE),
         "not_parroting": not parrots_example(reply) and not copies_example_opener(reply),
+        "no_tool_text": not re.search(r'</?[a-z_]+>|\{"', reply),
         "tells_joke_when_asked": kind != "joke" or not any(p in low for p in REFUSES_JOKE),
         "no_opinion_on_unseen": kind != "unseen" or any(p in low for p in ASKS_TO_SEE),
         "identity_correct": kind != "identity" or (not any(m in low for m in WRONG_MAKERS)
