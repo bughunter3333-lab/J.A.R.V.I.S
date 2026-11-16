@@ -362,3 +362,8 @@ def test_routed_tool_runs_before_the_model_answers(monkeypatch):
     assert ran == [("clipboard", {"action": "read"})]
     assert seen[0][-1]["content"] == "Clipboard: hello"  # the model sees the result, then answers
     assert events[-1]["reply"] == "You copied 'hello', sir."
+
+
+def test_a_sentence_repeated_in_one_reply_is_said_once(monkeypatch):
+    script(monkeypatch, say("Sixty, sir. Sixty, sir. A tidy number."))
+    assert brain.respond("What's 15 times 4?", "s") == "Sixty, sir. A tidy number."

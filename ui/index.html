@@ -491,7 +491,13 @@ function voiceFailed(e){
   setTimeout(()=>{ if (serverVoiceOk === false) serverVoiceOk = null; }, 60000);
 }
 async function playNext(){
-  if (!speakQueue.length){ speaking=false; speakingViaBuffer=false; setTimeout(()=>muteLocal(false), 300); onSpeechDone(); return; }
+  if (!speakQueue.length){
+    speaking=false; speakingViaBuffer=false;
+    // Only reopen the mic once the WHOLE reply has been said. Reopening between sentences let
+    // him hear his own next sentence and answer it, so replies came out twice.
+    if (replyFinished) setTimeout(()=>muteLocal(false), 700);
+    onSpeechDone(); return;
+  }
   if (!speaking) muteLocal(true);   // don't let him hear himself
   speaking = true; setState("speaking");
   const item = speakQueue.shift();
@@ -555,7 +561,7 @@ let abortCtl = null;
 async function handleUser(text){
   hideApproval();
   addLog("you", text); caption(text, true);
-  setState("thinking"); replyFinished = false;
+  setState("thinking"); replyFinished = false; muteLocal(true);   // closed until he has finished answering
   const started = performance.now(); let first = true, said = "";
   const line = addLog("j", "…");
   abortCtl = new AbortController();
@@ -597,9 +603,9 @@ async function handleUser(text){
     }
     replyFinished = true;
     if (state === "thinking") setState("idle");
-    if (!speaking && !speakQueue.length) onSpeechDone();
+    if (!speaking && !speakQueue.length){ setTimeout(()=>muteLocal(false), 700); onSpeechDone(); }
   }catch(e){
-    replyFinished = true;
+    replyFinished = true; muteLocal(false);
     if (e.name === "AbortError") { line.lastChild.textContent = said || "(stopped)"; setState("idle"); return; }
     console.error(e);
     const msg = e.fromServer

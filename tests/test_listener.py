@@ -299,3 +299,30 @@ def test_a_connected_page_still_gets_new_speech():
     chunks = "".join(lst.sse(last, max_seconds=0.3))
     assert "what time is it" in chunks
     lst.stop()
+
+
+# ---- echo guard: he must not answer his own voice -----------------------------------
+
+import listener as listener_module  # noqa: E402
+
+
+def test_his_own_sentence_coming_back_through_the_mic_is_ignored(monkeypatch):
+    monkeypatch.setattr(listener_module, "_SPOKEN", listener_module.deque(maxlen=60))
+    listener_module.note_spoken("The weather in Sydney is overcast with a temperature of 17 degrees, sir.")
+    listener_module.note_spoken("Very good, sir.")
+    assert listener_module.is_echo("the weather in Sydney is overcast with a temperature of 17 degrees")
+    assert listener_module.is_echo("Very good, sir.")
+    assert not listener_module.is_echo("What's the weather tomorrow?")
+    assert not listener_module.is_echo("Good")
+    assert not listener_module.is_echo("Set a timer for 17 minutes")
+
+
+def test_echo_is_dropped_not_answered(monkeypatch):
+    monkeypatch.setattr(listener_module, "_SPOKEN", listener_module.deque(maxlen=60))
+    listener_module.note_spoken("It is eight o'clock in the evening, sir.")
+    lst, _ = make_listener(["It is eight o'clock in the evening, sir.", "What time is it?"])
+    lst.start(wake_word=False)
+    heard = wait_for(lst, "heard")
+    assert heard["text"] == "What time is it?"
+    assert any(e["type"] == "echo" for e in lst.events_after(0, 0))
+    lst.stop()
