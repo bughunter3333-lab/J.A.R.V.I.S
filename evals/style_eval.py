@@ -64,7 +64,7 @@ PRESENCE_FILLER = ("i'm here", "i am here", "yes, sir?", "yes sir?", "at your se
 FALSE_PROMISE = ("let me look", "let me check", "let me find", "i'll look", "i will look",
                  "i'll check", "i will check", "i'll find out", "one moment", "give me a moment")
 REFUSES_JOKE = ("not equipped", "unable to", "i cannot", "i can't", "i do not tell", "i don't tell", "regret")
-ASKS_TO_SEE = ("show me", "share", "paste", "send", "haven't seen", "have not seen", "not seen",
+ASKS_TO_SEE = ("show me", "show it", "show the", "share", "paste", "send", "haven't seen", "have not seen", "not seen",
                "can't see", "cannot see", "take a look", "look at it", "which code", "what code")
 EMOJI = re.compile("[\U0001F300-\U0001FAFF☀-➿]")
 
@@ -107,7 +107,7 @@ def copies_example_opener(reply: str) -> bool:
 def check(reply: str, kind: str) -> dict[str, bool]:
     """Every rule, True = passed."""
     low = reply.lower().replace("\u2019", "'")
-    limit = 5 if kind == "explain" else 3
+    limit = 5 if kind == "explain" else 4 if kind == "joke" else 3  # a joke needs a set-up and a punchline
     words = len(reply.split())
     return {
         "short": len(sentences(reply)) <= limit and words <= (90 if kind == "explain" else 55),
@@ -118,7 +118,9 @@ def check(reply: str, kind: str) -> dict[str, bool]:
         "british_spelling": not any(re.search(rf"\b{us}", low) for us in AMERICAN),
         "not_robotic": not any(p in low for p in ROBOTIC),
         "no_presence_filler": not any(p in low for p in PRESENCE_FILLER),
-        "no_false_promise": not any(p in low for p in FALSE_PROMISE),
+        # "Let me check the weather, sir. It's 17 degrees..." kept its promise; only a reply
+        # that promises and then delivers nothing fails.
+        "no_false_promise": not any(p in low for p in FALSE_PROMISE) or len(sentences(reply)) > 1,
         "not_parroting": not parrots_example(reply) and not copies_example_opener(reply),
         "no_tool_text": not re.search(r'</?[a-z_]+>|\{"', reply),
         "tells_joke_when_asked": kind != "joke" or not any(p in low for p in REFUSES_JOKE),

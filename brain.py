@@ -187,6 +187,12 @@ def respond_events(message: str, session: str = "default"):
     memory.add_trace(session, config.MODEL, elapsed, trace["rounds"], trace["tools"], True)
 
 
+HERE_TO = re.compile(r"^I(?:'m|\u2019m| am) here to\b", re.I)
+SIR = re.compile(r"\bsir\b", re.I)
+EXTRA_SIR = re.compile(r",\s*sir\b(?=\s*[,.?!])", re.I)
+LEADING_SIR = re.compile(r"^sir,\s*", re.I)
+
+
 class _Sentences:
     """Collects streamed text and releases it a cleaned sentence at a time."""
 
@@ -200,6 +206,12 @@ class _Sentences:
         if PRESENCE_ONLY.match(sentence):
             self.dropped_filler = True
             return None  # "I am here, sir." says nothing; never speak it
+        if self.sent and HERE_TO.match(sentence):
+            return None  # "You're welcome, sir. I'm here to ensure everything runs smoothly."
+        if any(SIR.search(said) for said in self.sent):
+            # 'sir' once per reply: "Overcast, sir, and there's a 100%... tomorrow, sir."
+            sentence = LEADING_SIR.sub("", EXTRA_SIR.sub("", sentence))
+            sentence = sentence[:1].upper() + sentence[1:]
         if (self.sent or self.dropped_filler) and (SIGN_OFF.search(sentence)
                           or not TRAILING_OFFER.sub("", STOCK_OFFER.sub("", sentence)).strip()):
             return None  # "Is there anything else...?" after a real answer: drop it
