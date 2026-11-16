@@ -137,7 +137,7 @@ def test_promised_action_without_a_tool_call_is_retried(monkeypatch):
                   call("get_current_time"), say("Turned down, sir."))
     reply = brain.respond("It's way too loud", "s")
     assert seen[1][-1]["content"] == brain.ACTION_NUDGE
-    assert reply == "I shall adjust the volume, sir. Turned down, sir."  # a space between rounds
+    assert reply == "I shall adjust the volume, sir. Turned down."  # a space between rounds; one "sir"
 
 
 def test_promise_after_a_tool_call_does_not_repeat_the_action(monkeypatch):
@@ -285,3 +285,10 @@ def test_tool_call_written_as_tag_is_run_not_spoken(monkeypatch):
     assert got.tool_calls[0].function.name == "look_up"
     assert got.tool_calls[0].function.arguments == {"kind": "definition", "topic": "phishing"}
     assert brain.tool_call_in_text("<not_a_tool>{\"a\": 1}</not_a_tool>") is None
+
+
+def test_im_here_to_tail_and_second_sir_are_removed(monkeypatch):
+    script(monkeypatch, say("You're welcome, sir. I'm here to ensure everything runs smoothly."))
+    assert brain.respond("Thanks Jarvis", "s") == "You're welcome, sir."
+    script(monkeypatch, say("Overcast, sir, with rain. Tomorrow looks drier, sir. Sir, take an umbrella."))
+    assert brain.respond("Weather?", "s2") == "Overcast, sir, with rain. Tomorrow looks drier. Take an umbrella."

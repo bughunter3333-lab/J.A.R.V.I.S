@@ -79,3 +79,11 @@ def test_joke_and_unseen_rules():
 def test_tool_text_is_not_in_voice():
     assert not style_eval.check('<look_up>\n{"kind": "definition"}\n</look_up>', "explain")["no_tool_text"]
     assert style_eval.check("Phishing is a scam that tricks you into giving up details, sir.", "explain")["no_tool_text"]
+
+
+def test_round3_checker_fixes():
+    assert style_eval.check("I regret I cannot comment on your code, sir, unless you show it to me.", "unseen")["no_opinion_on_unseen"]
+    joke = "Very good, sir. I shall oblige. Why did the scarecrow win an award? Because he was outstanding in his field."
+    assert style_eval.check(joke, "joke")["short"]
+    assert style_eval.check("Let me check, sir. It is 17 degrees in Sydney.", "short")["no_false_promise"]
+    assert not style_eval.check("Let me check that for you, sir.", "short")["no_false_promise"]
