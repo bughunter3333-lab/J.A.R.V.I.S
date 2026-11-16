@@ -147,6 +147,7 @@ def first_decision(message: str, chat=None) -> tuple[list[dict], float]:
         messages=[{"role": "system", "content": config.SYSTEM_PROMPT},
                   {"role": "user", "content": brain.with_tool_hint(message)}],  # as the real brain sends it
         tools=list(tools.TOOLS.values()),
+        options=brain.MODEL_OPTIONS,
         think=False,
     )
     took = time.perf_counter() - started

@@ -14,6 +14,13 @@ MODEL = "qwen3:8b"
 # BUILT_AT = "2026-11-13 21:30:00"
 BUILT_AT = None
 HISTORY_LIMIT = 12  # how many past messages are sent back to the model
+# How much text the model reads per request (Ollama's num_ctx), in tokens. If a request is
+# bigger than the model's window, Ollama silently cuts off its START, which is where the
+# system prompt and tool list are: he then loses his personality and tools mid-chat.
+# The system prompt and tool list alone are about 3,100 tokens. 8192 costs roughly 0.6 GB
+# more GPU memory than 4096; lower it if the model no longer fits on the GPU.
+CONTEXT_TOKENS = 8192
+REPLY_TOKENS = 600  # room kept free for his answer
 MAX_TOOL_ROUNDS = 4  # stops the model looping on tool calls forever
 
 # Voice
