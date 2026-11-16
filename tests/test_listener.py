@@ -326,3 +326,53 @@ def test_echo_is_dropped_not_answered(monkeypatch):
     assert heard["text"] == "What time is it?"
     assert any(e["type"] == "echo" for e in lst.events_after(0, 0))
     lst.stop()
+
+
+# ---- a mute must never outlive the page that set it ---------------------------------
+
+def test_a_new_page_lifts_a_mute_left_by_a_closed_page():
+    lst, made = make_listener(["What time is it?"])
+    lst.start(wake_word=False)
+    wait_for(lst, "waiting")
+    lst.mute(True)                    # the old page muted him while he answered, then went away
+    assert made["rec"].mic_on is False
+    next(lst.sse(last_id=0))          # a new page connects
+    assert made["rec"].mic_on is True and lst._muted is False
+    lst.stop()
+
+
+def test_a_connected_page_reconnecting_keeps_its_mute():
+    lst, made = make_listener([])
+    lst.start(wake_word=False)
+    wait_for(lst, "waiting")
+    lst.mute(True)
+    newest = lst._next_id - 1
+    next(lst.sse(last_id=newest), None)   # the same page's automatic reconnect
+    assert made["rec"].mic_on is False
+    lst.stop()
+
+
+def test_a_forgotten_mute_times_out(monkeypatch):
+    monkeypatch.setattr(listener_module, "MUTE_MAX_SECONDS", 0.5)
+    lst, made = make_listener([])
+    lst.start(wake_word=False)
+    wait_for(lst, "waiting")
+    lst.mute(True)
+    wait_for(lst, "unmuted", timeout=4)
+    assert made["rec"].mic_on is True
+    lst.stop()
+
+
+def test_follow_ups_that_reuse_his_words_are_not_echoes(monkeypatch):
+    monkeypatch.setattr(listener_module, "_SPOKEN", listener_module.deque(maxlen=60))
+    for said in ("It is Sunday, 15 November 2026, at 12:43 PM, sir.", "Teal, sir.",
+                 "The volume has been reduced, sir.",
+                 "A long day, sir. I hope your tea is strong enough to match your resolve.",
+                 "I'm afraid the weather service is unavailable, sir. Perhaps we can talk about something else.",
+                 "Ephemeral means lasting for a short period of time, sir."):
+        listener_module.note_spoken(said)
+    assert not listener_module.is_echo("how long is a short period of time")
+    assert not listener_module.is_echo("what time is it now sir")
+    # the real thing still counts, including the end of one sentence and the start of the next
+    assert listener_module.is_echo("lasting for a short period of time sir")
+    assert listener_module.is_echo("teal sir the volume has been reduced")

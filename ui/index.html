@@ -154,6 +154,9 @@ function ensureAudio(){
   analyser.fftSize = 256; analyser.smoothingTimeConstant = 0.75;
   freqData = new Uint8Array(analyser.frequencyBinCount);
 }
+// Any click or key on the page lets the browser play sound (its autoplay rule).
+addEventListener("pointerdown", () => ensureAudio(), {passive: true});
+addEventListener("keydown", () => ensureAudio());
 async function attachMic(){
   ensureAudio();
   if (micSource) return;
@@ -511,12 +514,22 @@ async function playNext(){
 }
 function playBuffer(buf){
   return new Promise(resolve => {
+    // A page opened without a click has its audio suspended by the browser: the sound never
+    // plays, onended never fires, and the mic (muted while he speaks) never reopened, so he
+    // stopped hearing sir. Ask for a click, and never wait longer than the clip itself.
+    if (actx.state !== "running"){
+      actx.resume().catch(()=>{});
+      caption("Click anywhere on this page so I can speak, sir.", true);
+    }
+    let done = false;
+    const finish = () => { if (done) return; done = true; clearTimeout(guard); resolve(); };
+    const guard = setTimeout(finish, buf.duration * 1000 + 1500);
     const src = actx.createBufferSource(); src.buffer = buf;
     // route through the analyser so the core pulses with his voice
     if (micSource) { try{ micSource.disconnect(analyser); }catch(_){} }
     src.connect(analyser); analyser.connect(actx.destination);
     speakingViaBuffer = true; currentSrc = src;
-    src.onended = () => { try{ analyser.disconnect(actx.destination); }catch(_){} if (micSource) micSource.connect(analyser); currentSrc=null; resolve(); };
+    src.onended = () => { try{ analyser.disconnect(actx.destination); }catch(_){} if (micSource) micSource.connect(analyser); currentSrc=null; finish(); };
     src.start();
   });
 }
@@ -535,7 +548,11 @@ function speakBrowser(text){
     clearInterval(fakeTimer);
     fakeTimer = setInterval(()=>{ fakeLevel = 0.25 + Math.random()*0.45; }, 90);
     u.onboundary = () => { fakeLevel = 0.8; };
-    u.onend = u.onerror = () => { clearInterval(fakeTimer); fakeLevel = 0; resolve(); };
+    let done = false;
+    // Some browsers never fire onend (or block speech on a page nobody has clicked); without
+    // this guard he stayed "speaking" with the mic muted for good.
+    const guard = setTimeout(() => u.onend(), Math.max(4000, text.length * 90));
+    u.onend = u.onerror = () => { if (done) return; done = true; clearTimeout(guard); clearInterval(fakeTimer); fakeLevel = 0; resolve(); };
     speechSynthesis.speak(u);
   });
 }
