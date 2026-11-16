@@ -31,6 +31,12 @@ The language model runs on this PC through Ollama, so your conversations stay on
 cd D:\jarvis-x; .\.venv\Scripts\Activate.ps1; uvicorn main:app --reload
 ```
 
+Memory by meaning (finding the facts and notes that relate to what you say) uses a small embedding model. Install it once (about 270 MB); without it Jarvis falls back to keywords:
+
+```powershell
+ollama pull nomic-embed-text
+```
+
 Then open http://127.0.0.1:8000/docs and use **POST /chat**. **GET /reminders** lists waiting reminders. **GET /audit** shows every tool call Jarvis made or refused, and **GET /stats** shows response times and which tools he used.
 
 ## Something not working?
