@@ -348,6 +348,9 @@ TOOL_HINTS = [
                 r"|\bin my notes\b", re.I), "search_notes"),
     (re.compile(r"^\s*(who (invented|discovered|founded|created|designed|built|wrote|painted)\b(?!.*\byou\b)"
                 r"|tell me about (?!yourself|you\b|my\b|your\b))", re.I), "look_up"),
+    # "What does ephemeral mean?" got "You may look it up, sir" in two simulation runs.
+    (re.compile(r"\bwhat does (?!that|this|it|he|she|they|you|my|your)[\w'-]+ mean\b|^\s*define\b"
+                r"|\bmeaning of the word\b", re.I), "look_up"),
 ]
 TOOL_HINT = "\n\n(System hint, not from sir: use the {tool} tool for this rather than answering from memory.)"
 
@@ -399,6 +402,24 @@ def _grounded(name: str, args: dict, messages: list) -> dict:
     return args
 
 
+def _instant_command(message: str, session: str, trace: dict) -> str | None:
+    """Volume, music, the time...: run it and answer at once, without the big model, when
+    the embedding classifier is sure (intents.py). None = not sure, ask the model."""
+    if not config.INSTANT_COMMANDS:
+        return None
+    import intents
+
+    hit = intents.classify(message)
+    if hit is None:
+        return None
+    name = hit[0]
+    intent = intents.INTENTS[name]
+    trace["tools"].append(intent.tool)
+    trace["instant"] = name
+    result = tools.run_tool(intent.tool, dict(intent.args), session)
+    return intents.reply_for(name, result)
+
+
 def _respond(message: str, session: str, trace: dict):
     memory.init_db()
     settled = _answer_approval(message, session, trace)
@@ -407,6 +428,14 @@ def _respond(message: str, session: str, trace: dict):
         memory.add_message(session, "assistant", settled)
         yield {"type": "sentence", "text": settled}
         yield {"type": "done", "reply": settled}
+        return
+
+    instant = _instant_command(message, session, trace)
+    if instant is not None:
+        memory.add_message(session, "user", security.clean_for_storage("history", message))
+        memory.add_message(session, "assistant", instant)
+        yield {"type": "sentence", "text": instant}
+        yield {"type": "done", "reply": instant}
         return
 
     messages = [{"role": "system", "content": _system_prompt()}]

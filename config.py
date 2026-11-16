@@ -37,6 +37,13 @@ MEMORY_ALL_FACTS_UP_TO = 8   # up to this many facts, all of them go with every 
 MEMORY_TOP_K = 6             # with more, only the most related ones (plus the 2 newest)
 MEMORY_MIN_SIMILARITY = 0.40 # below this a fact never counts as related (0-1)
 NOTES_MIN_SIMILARITY = 0.50  # search_notes offers related notes only near the best match, and above this
+
+# Instant commands (intents.py): volume, music, the time... answered in a fraction of a
+# second by the embedding model instead of a full reply from the big model. A message is
+# only handled instantly when it is clearly one command; everything else goes to the model.
+INSTANT_COMMANDS = True
+INSTANT_MIN_SIMILARITY = 0.66  # how close to a known phrasing (0-1); calibrated on 137 unseen messages
+INSTANT_MARGIN = 0.03          # how much closer than to any other command or non-command
 MAX_TOOL_ROUNDS = 4  # stops the model looping on tool calls forever
 
 # Voice
