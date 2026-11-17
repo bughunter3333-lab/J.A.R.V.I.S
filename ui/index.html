@@ -409,6 +409,7 @@ function connectLocalEars(){
     const kind = ev.type === "state" ? ev.state : ev.type;
     if (ev.type === "state" && "conversation" in ev) inConversation = ev.conversation;
     if (kind === "heard"){ if (state === "speaking") stopSpeaking(); handleUser(ev.text); return; }
+    if (kind === "not_sir"){ caption(`Not your voice, sir: ignored "${ev.text}"`, true); return; }
     if (kind === "error"){ caption(ev.detail); localState = "off"; els.rInput.textContent = "EARS OFFLINE"; els.mic.classList.remove("on"); return; }
     if (["loading","waiting","off","listening"].includes(kind)) localState = kind;
     if (kind === "conversation"){
