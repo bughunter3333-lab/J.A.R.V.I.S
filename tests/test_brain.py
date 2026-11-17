@@ -462,3 +462,9 @@ def test_a_reply_cut_by_the_cap_never_ends_mid_sentence(monkeypatch):
     monkeypatch.setattr(brain, "chat", lambda **kw: iter([first, last]))
     reply = brain.respond("Tell me a joke", "s")
     assert reply == "Why did the robot cross the road? Because it was programmed to, sir."
+
+
+@pytest.mark.parametrize("said,hinted", [("What does ephemeral mean?", True), ("Define serendipity", True),
+                                         ("What does that mean?", False), ("What does my schedule look like?", False)])
+def test_word_meanings_get_the_look_up_hint(said, hinted):
+    assert ("look_up tool" in brain.with_tool_hint(said)) is hinted
