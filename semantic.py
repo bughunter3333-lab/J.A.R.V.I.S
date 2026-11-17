@@ -35,8 +35,10 @@ def _embed(texts: list[str]) -> list[list[float]]:
     try:
         from ollama import embed
 
+        import gamemode
+
         return [list(v) for v in embed(model=config.EMBED_MODEL, input=texts,
-                                       keep_alive=config.MODEL_KEEP_ALIVE).embeddings]
+                                       keep_alive=gamemode.keep_alive()).embeddings]
     except Exception as exc:  # model not pulled, Ollama down, ...
         raise Unavailable(f"{type(exc).__name__}: {exc}") from exc
 
