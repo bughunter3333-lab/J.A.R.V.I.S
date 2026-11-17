@@ -7,6 +7,7 @@ from ollama import Message, chat
 
 import approvals
 import config
+import gamemode
 import memory
 import security
 import tools
@@ -183,7 +184,7 @@ def warm_up() -> None:
     real reply doesn't wait for a cold load plus ~3,100 tokens of prompt."""
     chat(model=config.MODEL, messages=[{"role": "system", "content": _system_prompt()},
                                        {"role": "user", "content": "Ready?"}],
-         tools=list(tools.TOOLS.values()), think=False, keep_alive=config.MODEL_KEEP_ALIVE,
+         tools=list(tools.TOOLS.values()), think=False, keep_alive=gamemode.keep_alive(),
          options={**MODEL_OPTIONS, "num_predict": 1})
 
 
@@ -428,6 +429,14 @@ def _instant_command(message: str, session: str, trace: dict) -> str | None:
 
 def _respond(message: str, session: str, trace: dict):
     memory.init_db()
+    game = gamemode.command(message)
+    if game is not None:  # "game mode" / "done gaming": handled in code, no model loaded for it
+        reply = gamemode.switch(game)
+        memory.add_message(session, "user", security.clean_for_storage("history", message))
+        memory.add_message(session, "assistant", reply)
+        yield {"type": "sentence", "text": reply}
+        yield {"type": "done", "reply": reply}
+        return
     settled = _answer_approval(message, session, trace)
     if settled is not None:
         memory.add_message(session, "user", security.clean_for_storage("history", message))
@@ -481,7 +490,7 @@ def _respond(message: str, session: str, trace: dict):
         round_out = _Sentences() if hold_back else out
         history_len = fit_context(messages, history_len)
         for chunk in chat(model=config.MODEL, messages=messages, tools=list(tools.TOOLS.values()),
-                          options=MODEL_OPTIONS, keep_alive=config.MODEL_KEEP_ALIVE,
+                          options=MODEL_OPTIONS, keep_alive=gamemode.keep_alive(),
                           think=False, stream=True):
             if getattr(chunk, "done_reason", None) == "length":
                 cut_off = True  # hit config.REPLY_TOKENS mid-answer

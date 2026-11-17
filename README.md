@@ -177,3 +177,13 @@ python tests\recorder_check.py   # wake word + listening pipeline, fed from a re
 ## Credits
 
 `security.py` (scanner patterns) and `doctor.py` (the idea of a health check with fixes) are adapted from [OpenJarvis](https://github.com/open-jarvis/OpenJarvis) by Stanford's Hazy Research and Scaling Intelligence Lab, Apache-2.0 licensed.
+
+## Game mode
+
+JARVIS keeps his models loaded for an hour so he answers quickly, which holds about
+6.5 GB of an 8 GB graphics card. Before a game, say **"Jarvis, game mode"**: every
+model is unloaded at once, and while game mode is on he still answers but unloads
+again the moment he's done (and doesn't load at start-up). Say **"Jarvis, I'm done
+gaming"** to load back up. Game mode is remembered across restarts (`data/game_mode.json`).
+Other phrases that work: "turn on game mode", "free up the GPU", "game mode off",
+"stop game mode", "I'm done playing".

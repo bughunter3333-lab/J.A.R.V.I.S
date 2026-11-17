@@ -37,6 +37,11 @@ def _warm_up_voice() -> None:
 
 def _warm_up_model() -> None:
     """Load the language model in the background so the first reply isn't a cold start."""
+    import gamemode
+
+    if gamemode.active():
+        print("Game mode is on: not loading the model (say \"I'm done gaming\" to end it).")
+        return
     try:
         brain.warm_up()
         print("Model loaded.")
