@@ -32,6 +32,10 @@
   .log p{margin:10px 0;text-align:right}
   .log p.you{color:var(--dim);font-style:italic}
   .log p.j{color:var(--c2)}
+  .log p .rate{display:block;margin-top:3px;font-family:var(--mono);font-size:9px;letter-spacing:.2em;opacity:0;transition:opacity .2s}
+  .log p:hover .rate,.log p .rate.done{opacity:.75}
+  .log p .rate button{background:none;border:0;color:var(--c1);font:inherit;letter-spacing:inherit;cursor:pointer;padding:0 4px}
+  .log p .rate button:hover{color:var(--c2)}
   .log p .tag{display:block;font-family:var(--mono);font-size:9px;letter-spacing:.3em;color:var(--c1);opacity:.7;font-style:normal;margin-bottom:2px}
 
   .status{position:absolute;left:50%;bottom:164px;transform:translateX(-50%);font-family:var(--mono);font-size:12px;letter-spacing:.5em;color:var(--c1);text-shadow:0 0 10px var(--c1);white-space:nowrap}
@@ -360,6 +364,25 @@ function addLog(who, text){
   p.appendChild(document.createTextNode(text));
   els.log.appendChild(p); els.log.scrollTop = els.log.scrollHeight; return p;
 }
+// ---------- learning from sir: rate a reply (POST /feedback; used by training/build_dataset.py) ----------
+function addRating(line, turn){
+  const bar = document.createElement("span"); bar.className = "rate";
+  const send = async (rating) => {
+    let correction = "";
+    if (rating < 0) correction = (prompt("What should he have said? (optional)") || "").trim();
+    try{
+      const res = await fetch(api("/feedback"), {method:"POST", headers:{"Content-Type":"application/json"},
+        body: JSON.stringify({turn, rating, correction})});
+      bar.textContent = res.ok ? (rating > 0 ? "NOTED: GOOD" : (correction ? "NOTED: CORRECTED" : "NOTED: WRONG")) : "COULDN'T SAVE";
+    }catch(_){ bar.textContent = "COULDN'T SAVE"; }
+    bar.classList.add("done");
+  };
+  for (const [label, rating] of [["GOOD", 1], ["WRONG", -1]]){
+    const b = document.createElement("button"); b.textContent = label; b.title = rating > 0 ? "A good reply" : "A wrong reply (you can say what he should have said)";
+    b.addEventListener("click", () => send(rating)); bar.appendChild(b);
+  }
+  line.appendChild(bar);
+}
 function caption(text, interim=false){ els.caption.textContent=text; els.caption.classList.toggle("interim", interim); }
 
 // ---------- speech recognition (ears) ----------
@@ -614,6 +637,7 @@ async function handleUser(text){
           els.rModel.textContent = "ONLINE";
           if (!said){ line.lastChild.textContent = ev.reply; caption(ev.reply); }
           if (ev.approval) showApproval(ev.approval);
+          if (ev.turn) addRating(line, ev.turn);   // after the text: it is the line's last child until now
         } else if (ev.type === "error"){
           throw Object.assign(new Error(ev.detail), {fromServer:true});
         }

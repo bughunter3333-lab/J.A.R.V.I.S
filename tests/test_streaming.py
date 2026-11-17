@@ -37,7 +37,8 @@ def test_sentences_arrive_as_they_finish(monkeypatch):
                          chunk(" Is there anything else I can assist you with?")])
     events = list(brain.respond_events("hi", "s"))
     assert [e["text"] for e in events if e["type"] == "sentence"] == ["Good evening, sir.", "The time is noon."]
-    assert events[-1] == {"type": "done", "reply": "Good evening, sir. The time is noon."}
+    assert {k: v for k, v in events[-1].items() if k != "turn"} == {"type": "done", "reply": "Good evening, sir. The time is noon."}
+    assert isinstance(events[-1]["turn"], int)
     assert memory.recent_messages("s")[-1]["content"] == "Good evening, sir. The time is noon."
 
 
@@ -101,7 +102,8 @@ def test_empty_model_reply_is_never_silent(monkeypatch, tmp_path):
     memory.init_db()
     monkeypatch.setattr(brain, "chat", lambda **kw: iter([NS(message=NS(content="", tool_calls=None))]))
     events = list(brain.respond_events("Goats.", "s"))
-    assert events[-1] == {"type": "done", "reply": brain.EMPTY_REPLY}
+    assert {k: v for k, v in events[-1].items() if k != "turn"} == {"type": "done", "reply": brain.EMPTY_REPLY}
+    assert isinstance(events[-1]["turn"], int)
     assert {"type": "sentence", "text": brain.EMPTY_REPLY} in events
 
 
@@ -112,4 +114,5 @@ def test_presence_filler_is_never_streamed(monkeypatch):
         [SimpleNamespace(message=SimpleNamespace(content="I am here, sir.", tool_calls=None))]))
     events = list(brain.respond_events("Stop", "filler"))
     assert [e["text"] for e in events if e["type"] == "sentence"] == [brain.ACKNOWLEDGE]
-    assert events[-1] == {"type": "done", "reply": brain.ACKNOWLEDGE}
+    assert {k: v for k, v in events[-1].items() if k != "turn"} == {"type": "done", "reply": brain.ACKNOWLEDGE}
+    assert isinstance(events[-1]["turn"], int)

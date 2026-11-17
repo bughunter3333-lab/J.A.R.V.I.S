@@ -1,6 +1,7 @@
 """Build the fine-tuning dataset for JARVIS-X.
 
     python training\\build_dataset.py            -> training\\data\\train.jsonl, valid.jsonl
+    python training\\build_dataset.py --no-feedback   -> the same, without sir's HUD ratings
 
 Every example is a full conversation in the exact shape Jarvis sees at run time:
 the real system prompt, the real tool descriptions, sir's message, Jarvis's tool call,
@@ -420,11 +421,54 @@ SCENARIOS = [time_examples, app_examples, note_examples, remember_examples, web_
 
 
 def eval_questions() -> set[str]:
-    from evals import style_eval, tool_eval
-    return {norm(m) for m, *_ in tool_eval.CASES} | {norm(p) for p, _ in style_eval.PROMPTS}
+    from evals import conversation_eval, style_eval, tool_eval
+    turns = {norm(t["say"]) for _, ts in conversation_eval.SCENARIOS for t in ts if t != "NEW CHAT"}
+    return {norm(m) for m, *_ in tool_eval.CASES} | {norm(p) for p, _ in style_eval.PROMPTS} | turns
 
 
-def build(seed: int = SEED) -> list[dict]:
+# ---------------------------------------------------------------- sir's own ratings
+# Replies sir rated in the HUD (memory.rate_turn): a good reply is learned as it was, a bad
+# one with sir's correction is learned with the correction. Turns that touched his private
+# things are never trained on: a fine-tuned model can repeat what it was trained on.
+PRIVATE_TOOLS = {"files", "clipboard", "search_notes", "remember_fact", "reminder", "create_note"}
+
+
+def feedback_examples(held_out: set[str]) -> tuple[list[tuple[str, list[dict]]], dict]:
+    """(user, turns) pairs from sir's ratings, and counts of what was used or skipped and why."""
+    import approvals
+    import memory
+
+    counts = {"used": 0, "bad, no correction": 0, "private tool": 0, "eval question": 0,
+              "approval answer": 0, "personal data": 0}
+    try:
+        memory.init_db()
+        rated = memory.rated_turns()
+    except Exception:
+        return [], counts
+    pairs = []
+    for row in rated:
+        message, calls = row["message"], row["calls"]
+        final = row["reply"] if row["rating"] > 0 else row["correction"]
+        if not final:
+            counts["bad, no correction"] += 1
+        elif any(c["tool"] in PRIVATE_TOOLS for c in calls):
+            counts["private tool"] += 1
+        elif approvals.decision(message) is not None:
+            counts["approval answer"] += 1  # "yes" means nothing without the question before it
+        elif norm(message) in held_out:
+            counts["eval question"] += 1
+        elif security.scan(message + " " + final, kinds=("secret", "pii")):
+            counts["personal data"] += 1
+        else:
+            turns = []
+            for c in calls:
+                turns += [call(c["tool"], **c["args"]), result(c["tool"], c["result"])]
+            pairs.append((message, turns + [say(final)]))
+            counts["used"] += 1
+    return pairs, counts
+
+
+def build(seed: int = SEED, use_feedback: bool = True) -> list[dict]:
     rng = random.Random(seed)
     system = {"role": "system", "content": config.SYSTEM_PROMPT}
     schemas = tool_schemas()
@@ -433,7 +477,15 @@ def build(seed: int = SEED) -> list[dict]:
         pairs += scenario(rng)
     pairs += [(u, [say(r)]) for u, r in CHAT]
     held_out = eval_questions()
+    rated = feedback_examples(held_out)[0] if use_feedback else []
     examples = []
+    for user, turns in rated:  # sir's own: already filtered; one that fails check() is dropped
+        ex = {"messages": [system, {"role": "user", "content": user}, *turns], "tools": tool_schemas()}
+        try:
+            check([ex])
+            examples.append(ex)
+        except AssertionError:
+            pass
     for user, turns in pairs:
         if norm(user) in held_out:
             raise ValueError(f"Training example copies an eval question: {user!r}")
@@ -461,7 +513,12 @@ def check(examples: list[dict]) -> None:
 
 
 def main() -> None:
-    examples = build()
+    use_feedback = "--no-feedback" not in sys.argv
+    if use_feedback:
+        _, counts = feedback_examples(eval_questions())
+        skipped = ", ".join(f"{n} {why}" for why, n in counts.items() if why != "used" and n)
+        print(f"Sir's ratings: {counts['used']} used" + (f" (skipped: {skipped})" if skipped else ""))
+    examples = build(use_feedback=use_feedback)
     check(examples)
     OUT_DIR.mkdir(parents=True, exist_ok=True)
     split = max(1, len(examples) // 10)

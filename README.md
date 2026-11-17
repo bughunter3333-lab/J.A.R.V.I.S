@@ -148,6 +148,8 @@ The style test checks every reply for length, markdown, emoji, exclamation marks
 
 **2. Prompt.** His voice lives in `config.py` as `VOICE` (the rules) and `VOICE_EXAMPLES` (short example exchanges). Edit, rerun the style test, and keep what scores better.
 
+**Teach him with your own ratings.** In the HUD, hover over any reply and click **GOOD** or **WRONG** (with WRONG you can type what he should have said). Ratings are kept on this PC (`GET /feedback` lists them) and step 3 below learns from them: good replies as they were, corrected ones with your correction, tool calls included. Replies that touched your files, clipboard, notes, saved facts or reminders are never trained on, because a fine-tuned model can repeat what it was trained on. `python training\build_dataset.py --no-feedback` leaves your ratings out.
+
 **3. Fine-tune (LoRA).** This retrains the model's weights on example conversations:
 
 ```powershell
