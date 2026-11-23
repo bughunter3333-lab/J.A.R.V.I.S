@@ -77,10 +77,12 @@ def pending(session: str, now: datetime | None = None) -> dict | None:
         if not row:
             return None
         rid, tool, args, summary, created = row
-        if now - datetime.fromisoformat(created) > timedelta(seconds=config.APPROVAL_TIMEOUT):
+        left = config.APPROVAL_TIMEOUT - (now - datetime.fromisoformat(created)).total_seconds()
+        if left < 0:
             db.execute("UPDATE approvals SET status='expired' WHERE id=?", (rid,))
             return None
-    return {"id": rid, "tool": tool, "args": json.loads(args), "summary": summary}
+    # expires_in lets the HUD take its Approve button down when the request lapses here.
+    return {"id": rid, "tool": tool, "args": json.loads(args), "summary": summary, "expires_in": int(left)}
 
 
 def expire_all() -> None:

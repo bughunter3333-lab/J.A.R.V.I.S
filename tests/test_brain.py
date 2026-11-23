@@ -468,3 +468,18 @@ def test_a_reply_cut_by_the_cap_never_ends_mid_sentence(monkeypatch):
                                          ("What does that mean?", False), ("What does my schedule look like?", False)])
 def test_word_meanings_get_the_look_up_hint(said, hinted):
     assert ("look_up tool" in brain.with_tool_hint(said)) is hinted
+
+
+# ---- token estimate: measured against qwen3's own counts, must never be far under ----------
+import pytest as _pytest
+
+
+@_pytest.mark.parametrize("text,real", [
+    ("Sir asked about the weather in Dhaka tomorrow and whether he should carry an umbrella to the office. "
+     "Remind me to call mum at six. " * 30, 871),
+    ("2026 11 17 06 15 22 42 0571 1711 000000 1234567 89 " * 30, 1530),
+    ("আজ ঢাকায় আবহাওয়া কেমন থাকবে? আমি কি অফিসে ছাতা নিয়ে যাব? " * 30, 1890),
+    ('def add(a, b):\n    return {"sum": a + b, "items": [x**2 for x in range(10)]}  # comment\n' * 30, 1050),
+])
+def test_token_estimate_is_close_and_errs_high(text, real):
+    assert real * 0.95 <= brain.text_tokens(text) <= real * 1.3

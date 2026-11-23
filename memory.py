@@ -9,7 +9,13 @@ import config
 
 def _connect() -> sqlite3.Connection:
     config.DATA_DIR.mkdir(parents=True, exist_ok=True)
-    return sqlite3.connect(config.DB_PATH)
+    # The listener, the reminder checker and the web API each open their own connection, often at
+    # once. WAL lets readers carry on while one of them writes, and the 10 s busy timeout makes a
+    # writer wait its turn instead of failing with "database is locked".
+    db = sqlite3.connect(config.DB_PATH, timeout=10)
+    db.execute("PRAGMA journal_mode=WAL")
+    db.execute("PRAGMA synchronous=NORMAL")  # safe with WAL: a power cut may lose the last moments of writes, never corrupt the file
+    return db
 
 
 def init_db() -> None:
