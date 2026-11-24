@@ -43,16 +43,23 @@ FACTS = ["Sir's exam is on Friday.", "Sir prefers tea over coffee.", "Sir is all
          "Sir's sister is Mim.", "Sir's gym days are Monday and Thursday.", "Sir's mate is Rafi."]
 
 
-def test_few_facts_all_go_without_embedding(embedder):
-    assert semantic.relevant_facts("anything", FACTS[:3]) == FACTS[:3] and embedder == []
+def test_few_facts_are_still_chosen_by_relevance(embedder, monkeypatch):
+    # Sent with every message, a handful of facts leaked into small talk (9 of 12 replies).
+    monkeypatch.setattr(config, "MEMORY_TOP_K", 1)
+    assert semantic.relevant_facts("can I eat this satay?", FACTS[:3]) == ["Sir is allergic to peanuts."]
 
 
-def test_many_facts_only_related_ones_plus_newest(embedder, monkeypatch):
+def test_unrelated_message_gets_no_facts(embedder, monkeypatch):
+    monkeypatch.setattr(config, "MEMORY_MIN_SIMILARITY", 0.99)
+    assert semantic.relevant_facts("Thanks Jarvis", FACTS[:3]) == []
+    memory.add_fact(FACTS[0])
+    assert brain.facts_note("Thanks Jarvis") == ""
+
+
+def test_many_facts_only_related_ones(embedder, monkeypatch):
     monkeypatch.setattr(config, "MEMORY_TOP_K", 1)
     chosen = semantic.relevant_facts("can I eat this satay?", FACTS)
-    assert "Sir is allergic to peanuts." in chosen
-    assert "Sir's car is a Toyota." not in chosen
-    assert FACTS[-2:] == chosen[-2:]  # the newest are kept: he may have just been told
+    assert chosen == ["Sir is allergic to peanuts."]
 
 
 def test_vectors_are_cached(embedder):

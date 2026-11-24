@@ -33,9 +33,12 @@ MODEL_KEEP_ALIVE = "60m"
 # notes that relate to what sir said. Install it once with: ollama pull nomic-embed-text
 # Without it, Jarvis falls back to giving the model every fact and searching notes by words.
 EMBED_MODEL = "nomic-embed-text"
-MEMORY_ALL_FACTS_UP_TO = 8   # up to this many facts, all of them go with every request
-MEMORY_TOP_K = 6             # with more, only the most related ones (plus the 2 newest)
-MEMORY_MIN_SIMILARITY = 0.40 # below this a fact never counts as related (0-1)
+MEMORY_TOP_K = 6             # at most this many remembered facts go with a message: the most related
+# Below this a fact doesn't go with the message at all (0-1). Measured with nomic-embed-text: small
+# talk ("Thanks Jarvis", "Good morning") scores 0.39-0.49 against any fact; questions that need one
+# ("What's my cat called?", "Any tips for my exams?") 0.51-0.80. Sent regardless, facts leaked into
+# 9 of 12 unrelated replies ("Teal is a most agreeable colour, sir").
+MEMORY_MIN_SIMILARITY = 0.50
 NOTES_MIN_SIMILARITY = 0.50  # search_notes offers related notes only near the best match, and above this
 
 # Instant commands (intents.py): volume, music, the time... answered in a fraction of a

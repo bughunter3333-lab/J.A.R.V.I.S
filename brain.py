@@ -197,19 +197,17 @@ def _system_prompt() -> str:
 
 def facts_note(message: str) -> str:
     """The facts about sir that matter for this message, as a note in front of it (not saved
-    to the history). Up to config.MEMORY_ALL_FACTS_UP_TO facts all go; beyond that only the
-    ones the embedding model finds related (semantic.relevant_facts)."""
+    to the history): only the ones the embedding model finds related (semantic.relevant_facts).
+    None related, no note."""
     import semantic
 
     facts = memory.all_facts()
     if not facts:
         return ""
     chosen = semantic.relevant_facts(message, facts)
-    # Worded as background: given bare, the model brought them into small talk ("Teal is a most
-    # agreeable colour, sir") in 9 of 12 unrelated replies.
-    return ("(Background on sir, for reference only. Use a fact only if his message is about it or "
-            "needs it; otherwise do not mention any of it: "
-            + " ".join(f"({i}) {f}" for i, f in enumerate(chosen, 1)) + ")\n\n")
+    if not chosen:
+        return ""
+    return "(Things you know about sir: " + " ".join(f"({i}) {f}" for i, f in enumerate(chosen, 1)) + ")\n\n"
 
 
 STATUS = {

@@ -468,15 +468,3 @@ def test_a_reply_cut_by_the_cap_never_ends_mid_sentence(monkeypatch):
                                          ("What does that mean?", False), ("What does my schedule look like?", False)])
 def test_word_meanings_get_the_look_up_hint(said, hinted):
     assert ("look_up tool" in brain.with_tool_hint(said)) is hinted
-
-
-def test_facts_are_offered_as_background_not_topics():
-    # Given bare, the model worked remembered facts into small talk (9 of 12 unrelated replies).
-    memory.add_fact("Sir's favourite colour is teal.")
-    note = brain.facts_note("Thanks Jarvis")
-    assert "teal" in note
-    assert "only if his message is about it" in note and "do not mention" in note
-
-
-def test_no_facts_no_note():
-    assert brain.facts_note("Thanks Jarvis") == ""
