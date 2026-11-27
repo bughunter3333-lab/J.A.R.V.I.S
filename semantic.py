@@ -80,14 +80,14 @@ def rank(query: str, texts: list[str]) -> list[tuple[float, int]]:
 
 
 def relevant_facts(message: str, facts: list[str]) -> list[str]:
-    """The facts worth showing the model for this message, in the order they were saved.
-    Few facts: all of them. Many: the most similar ones plus the newest (just told)."""
-    if len(facts) <= config.MEMORY_ALL_FACTS_UP_TO:
-        return facts
+    """The facts worth showing the model for this message, in the order they were saved: only
+    the related ones, however few he knows. Every fact sent with every message got worked into
+    small talk, and a fact just told is in the conversation already."""
+    if not facts:
+        return []
     try:
         ranked = rank(message, facts)
     except Unavailable:
         return facts  # no embedding model: the old way, all of them
     keep = {i for score, i in ranked[:config.MEMORY_TOP_K] if score >= config.MEMORY_MIN_SIMILARITY}
-    keep |= set(range(len(facts) - 2, len(facts)))
     return [f for i, f in enumerate(facts) if i in keep]

@@ -197,14 +197,16 @@ def _system_prompt() -> str:
 
 def facts_note(message: str) -> str:
     """The facts about sir that matter for this message, as a note in front of it (not saved
-    to the history). Up to config.MEMORY_ALL_FACTS_UP_TO facts all go; beyond that only the
-    ones the embedding model finds related (semantic.relevant_facts)."""
+    to the history): only the ones the embedding model finds related (semantic.relevant_facts).
+    None related, no note."""
     import semantic
 
     facts = memory.all_facts()
     if not facts:
         return ""
     chosen = semantic.relevant_facts(message, facts)
+    if not chosen:
+        return ""
     return "(Things you know about sir: " + " ".join(f"({i}) {f}" for i, f in enumerate(chosen, 1)) + ")\n\n"
 
 
