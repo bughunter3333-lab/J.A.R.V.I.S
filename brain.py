@@ -129,8 +129,24 @@ def _content(m) -> str:
     return str(getattr(m, "content", "") or "") + str(getattr(m, "tool_calls", "") or "")
 
 
+# Token counting without loading the model's tokenizer. A flat "characters / 3" was 50% too high
+# for English (history dropped early) and a third of the truth for Bangla, Hindi, digits and IDs
+# (the request could overflow and Ollama would cut the system prompt). These weights were
+# measured against qwen3's own counts (prompt_eval_count) for each kind of text and lean high.
+_WORD = re.compile(r"[A-Za-z]+")              # an English word, with the space before it: ~1.2 tokens
+_DIGIT = re.compile(r"[0-9]")                 # qwen splits numbers into single digits
+_SYMBOL = re.compile(r"[^\sA-Za-z0-9\x80-\U0010ffff]")
+_NON_ASCII = re.compile(r"[^\x00-\x7f]")      # Bangla, Hindi, emoji...: about one token each
+_LONE_SPACE = re.compile(r"\s(?![A-Za-z\s])")  # a space not merged into the next word
+
+
+def text_tokens(text: str) -> int:
+    return int(1.3 * len(_WORD.findall(text)) + len(_DIGIT.findall(text)) + 0.6 * len(_SYMBOL.findall(text))
+               + 1.15 * len(_NON_ASCII.findall(text)) + len(_LONE_SPACE.findall(text)))
+
+
 def estimate_tokens(messages: list) -> int:
-    return _tool_schema_tokens() + sum(int(len(_content(m)) / CHARS_PER_TOKEN) + 4 for m in messages)
+    return _tool_schema_tokens() + sum(text_tokens(_content(m)) + 4 for m in messages)
 
 
 def fit_context(messages: list, history_len: int) -> int:

@@ -126,3 +126,10 @@ def test_no_problem_is_not_a_refusal(said):
 @pytest.mark.parametrize("said", ["no", "No thanks", "nope", "don't"])
 def test_a_real_no_is_still_a_refusal(said):
     assert approvals.decision(said) == "deny"
+
+
+def test_pending_says_how_long_it_has_left(opened):
+    tools.run_tool("pc_control", {"action": "lock_screen"}, "s")
+    soon = datetime.now() + timedelta(seconds=30)
+    left = approvals.pending("s", now=soon)["expires_in"]
+    assert config.APPROVAL_TIMEOUT - 32 <= left <= config.APPROVAL_TIMEOUT - 29

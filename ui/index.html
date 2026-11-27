@@ -659,11 +659,16 @@ async function handleUser(text){
 }
 
 // ---------- approvals: risky actions wait for sir's yes ----------
+let approvalTimer = null;
 function showApproval(a){
   els.approval.querySelector("span").textContent = "Approve: " + a.summary + "?";
   els.approval.classList.add("open");
+  // The server drops an unanswered request after APPROVAL_TIMEOUT; the button must not outlive it
+  // (pressing Approve after that only sent a plain "yes" to the model).
+  clearTimeout(approvalTimer);
+  if (Number.isFinite(a.expires_in)) approvalTimer = setTimeout(hideApproval, Math.max(0, a.expires_in) * 1000);
 }
-function hideApproval(){ els.approval.classList.remove("open"); }
+function hideApproval(){ clearTimeout(approvalTimer); els.approval.classList.remove("open"); }
 
 // ---------- reminders: the server says when one goes off, Jarvis says it aloud ----------
 async function checkReminders(){
